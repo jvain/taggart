@@ -146,6 +146,20 @@ public final class Library {
         FieldState(items(ids).lazy.map { $0.value(field) })
     }
 
+    /// Every tag in the selected files, sorted by name, with how it compares
+    /// across them.
+    public func rawTags(for ids: Set<AudioFileItem.ID>) -> [RawTag] {
+        let selected = items(ids)
+        let keys = Set(selected.flatMap(\.edited.fields.keys))
+        return keys.sorted { $0.localizedStandardCompare($1) == .orderedAscending }.map { key in
+            let values = selected.map { $0.edited.fields[key] }
+            if let first = values.first ?? nil, values.allSatisfy({ $0 == first }) {
+                return RawTag(key: key, state: .uniform(first))
+            }
+            return RawTag(key: key, state: .mixed(count: values.filter { $0 != nil }.count))
+        }
+    }
+
     public func artworkState(for ids: Set<AudioFileItem.ID>) -> ArtworkState {
         ArtworkState(items(ids).lazy.map(\.edited))
     }

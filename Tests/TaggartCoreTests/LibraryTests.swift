@@ -62,6 +62,26 @@ struct GenreTests {
     }
 }
 
+@Suite("Raw tag names")
+struct RawTagKeyTests {
+    @Test func validatesNames() {
+        #expect(RawTagKey.validate(" musicbrainz_trackid ") == ("MUSICBRAINZ_TRACKID", nil))
+        #expect(RawTagKey.validate("My Tag").key == "MY TAG")
+        #expect(RawTagKey.validate("My Tag").error == nil)
+        #expect(RawTagKey.validate("  ").error != nil)
+        #expect(RawTagKey.validate("A=B").error != nil)
+        #expect(RawTagKey.validate("Ääni").error != nil)
+    }
+
+    @Test func suggestsCommonNames() {
+        let suggestions = RawTagKey.suggestions(for: "replay", excluding: ["REPLAYGAIN_TRACK_GAIN"])
+        #expect(suggestions.allSatisfy { $0.hasPrefix("REPLAYGAIN_") })
+        #expect(!suggestions.contains("REPLAYGAIN_TRACK_GAIN"))
+        #expect(RawTagKey.suggestions(for: "trackid", excluding: []).contains("MUSICBRAINZ_TRACKID"))
+        #expect(RawTagKey.suggestions(for: "", excluding: []).isEmpty)
+    }
+}
+
 @Suite("File scanning")
 struct FileScannerTests {
     @Test func findsAudioFilesRecursively() throws {
@@ -167,6 +187,64 @@ struct LibraryTests {
             #expect(try TagIO.read(url).snapshot.value(of: .album) == "Saved Album")
         }
         #expect(try TagIO.read(urls[1]).snapshot.artwork.count == 1)
+    }
+
+    @Test func comparesRawTagsAcrossFiles() async throws {
+        let (library, ids, _) = try await loadedLibrary()
+        let all = library.rawTags(for: Set(ids))
+        // basic.flac, basic.mp3 and cover.flac all have a different TITLE.
+        #expect(all.first { $0.key == "TITLE" }?.state == .mixed(count: 3))
+        // Only the two basic files have CUSTOM_KEY.
+        #expect(all.first { $0.key == "CUSTOM_KEY" }?.state == .mixed(count: 2))
+        let keys = all.map(\.key)
+        #expect(keys == keys.sorted { $0.localizedStandardCompare($1) == .orderedAscending })
+
+        let two = library.rawTags(for: [ids[0], ids[1]])
+        #expect(two.first { $0.key == "CUSTOM_KEY" }?.state == .uniform(["keep me"]))
+        #expect(library.rawTags(for: [ids[0]]).first { $0.key == "ARTIST" }?.state == .uniform(["Artist One", "Artist Two"]))
+    }
+
+    @Test func editsRawTagsWithUndo() async throws {
+        let (library, ids, _) = try await loadedLibrary()
+        let all = Set(ids)
+        let undo = undoManager()
+        undo.beginUndoGrouping()
+        library.apply(.setTag("MOOD", ["Calm"]), to: all, undoManager: undo)
+        undo.endUndoGrouping()
+        #expect(undo.undoActionName == "Edit MOOD")
+        #expect(library.rawTags(for: all).first { $0.key == "MOOD" }?.state == .uniform(["Calm"]))
+
+        undo.beginUndoGrouping()
+        library.apply(.setTag("CUSTOM_KEY", []), to: all, undoManager: undo)
+        undo.endUndoGrouping()
+        #expect(undo.undoActionName == "Delete CUSTOM_KEY")
+        #expect(!library.rawTags(for: all).contains { $0.key == "CUSTOM_KEY" })
+
+        undo.undo()
+        #expect(library.rawTags(for: all).first { $0.key == "CUSTOM_KEY" }?.state == .mixed(count: 2))
+        undo.undo()
+        #expect(!library.rawTags(for: all).contains { $0.key == "MOOD" })
+    }
+
+    @Test func editsOneValueOfATagPerFile() async throws {
+        let (library, ids, _) = try await loadedLibrary()
+        library.apply(.setTag("ARTISTS", ["A", "B"]), to: [ids[0]], undoManager: nil)
+        library.apply(.setTag("ARTISTS", ["A", "C"]), to: [ids[1]], undoManager: nil)
+
+        // Changing the first value keeps each file's own second value.
+        library.apply(.setTagValue("ARTISTS", index: 0, "Z"), to: [ids[0], ids[1]], undoManager: nil)
+        #expect(library.item(ids[0])?.edited.fields["ARTISTS"] == ["Z", "B"])
+        #expect(library.item(ids[1])?.edited.fields["ARTISTS"] == ["Z", "C"])
+
+        library.apply(.addTagValue("ARTISTS", " D "), to: [ids[0], ids[2]], undoManager: nil)
+        #expect(library.item(ids[0])?.edited.fields["ARTISTS"] == ["Z", "B", "D"])
+        #expect(library.item(ids[2])?.edited.fields["ARTISTS"] == ["D"])
+
+        // An empty value removes it; removing the last value deletes the tag.
+        library.apply(.setTagValue("ARTISTS", index: 1, ""), to: [ids[0]], undoManager: nil)
+        #expect(library.item(ids[0])?.edited.fields["ARTISTS"] == ["Z", "D"])
+        library.apply(.setTagValue("ARTISTS", index: 0, ""), to: [ids[2]], undoManager: nil)
+        #expect(library.item(ids[2])?.edited.fields["ARTISTS"] == nil)
     }
 
     @Test func listsGenresInUseByFrequency() async throws {

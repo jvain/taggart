@@ -172,6 +172,39 @@ struct WritingTests {
         #expect(loaded.snapshot.fields["ARTIST"]?.isEmpty == false)
     }
 
+    @Test(arguments: files)
+    func roundTripsRawTags(_ name: String) throws {
+        let tags: [String: [String]] = [
+            "MUSICBRAINZ_TRACKID": ["7f7c3e7a-9d43-4b7b-a2a3-1d5a7c1f0e11"],
+            "REPLAYGAIN_TRACK_GAIN": ["-6.50 dB"],
+            "LYRICS": ["First line; still the first\nSecond line"],
+            "MY TAG": ["custom value"],
+        ]
+        let reloaded = try edit(fixture(name)) { snapshot, format in
+            for (key, values) in tags {
+                snapshot = snapshot.applying(.setTag(key, values), format: format)
+            }
+        }
+        for (key, values) in tags {
+            #expect(reloaded.snapshot.fields[key] == values, "\(key)")
+        }
+
+        // Deleting a raw tag removes it from the file.
+        let deleted = try edit(reloaded.url) { snapshot, format in
+            snapshot = snapshot.applying(.setTag("MY TAG", []), format: format)
+        }
+        #expect(deleted.snapshot.fields["MY TAG"] == nil)
+        #expect(deleted.snapshot.fields["LYRICS"] == tags["LYRICS"])
+    }
+
+    @Test(arguments: ["basic.flac", "basic.mp3", "basic.m4a", "basic.ogg", "basic.opus"])
+    func roundTripsMultipleRawValues(_ name: String) throws {
+        let reloaded = try edit(fixture(name)) { snapshot, format in
+            snapshot = snapshot.applying(.setTag("ARTISTS", ["First Artist", "Second Artist"]), format: format)
+        }
+        #expect(reloaded.snapshot.fields["ARTISTS"] == ["First Artist", "Second Artist"])
+    }
+
     @Test func keepsCustomTagsInM4A() throws {
         let url = try fixture("basic.m4a")
         try edit(url) { tags, _ in tags.fields["CUSTOM_KEY"] = ["keep me"] }

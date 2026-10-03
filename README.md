@@ -17,6 +17,10 @@ Lossless), Ogg Vorbis and Opus.
   already in the loaded files first, then the standard ID3 genre list (built
   into TagLib). Track and Disc take numbers only; typing `3/12` sets the
   total too.
+- **All tags:** the All Tags tab of the side panel lists every tag in the
+  selected files under TagLib's names (MusicBrainz IDs, ReplayGain, lyrics,
+  custom tags…), with a field for each value. Tags can be edited, deleted and
+  added, across many files at once, with suggestions for common tag names.
 - **Cover art:** drop an image on the artwork well, paste it (⌘V) or choose a
   file. Images dragged from a web browser, and copied image addresses, are
   downloaded. The new cover replaces the front cover of every selected file and keeps
@@ -36,7 +40,7 @@ Lossless), Ogg Vorbis and Opus.
 - **Safe saving:** each file is written to an instant APFS clone, which then
   replaces the original, so a failed save can't damage a file. Taggart won't
   overwrite a file that another app changed after it was loaded.
-- **Leaves everything else alone:** tags without UI (MusicBrainz IDs,
+- **Leaves everything else alone:** tags you don't edit (MusicBrainz IDs,
   ReplayGain, …), the audio data, and an existing ID3v1 tag are preserved.
   Taggart never adds an ID3v1 tag. MP3 files keep their ID3v2 version unless
   you choose ID3v2.3 or 2.4 in Settings. Settings can also keep files'

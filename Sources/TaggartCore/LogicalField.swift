@@ -199,6 +199,26 @@ extension TagSnapshot {
         switch edit {
         case let .setField(field, value):
             copy.set(field, to: value, format: format)
+        case let .setTag(key, values):
+            copy.fields[key] = values.isEmpty ? nil : values
+        case let .setTagValue(key, index, value):
+            var values = copy.fields[key] ?? []
+            let value = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            if values.indices.contains(index) {
+                if value.isEmpty {
+                    values.remove(at: index)
+                } else {
+                    values[index] = value
+                }
+            } else if !value.isEmpty {
+                values.append(value)
+            }
+            copy.fields[key] = values.isEmpty ? nil : values
+        case let .addTagValue(key, value):
+            let value = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !value.isEmpty {
+                copy.fields[key, default: []].append(value)
+            }
         case let .setFrontCover(artwork):
             // Many taggers store the cover as type "Other", so replace those too.
             copy.artwork.removeAll { $0.type == .frontCover || $0.type == .other }
@@ -238,6 +258,14 @@ extension TagSnapshot {
 /// One change applied to a set of files.
 public enum TagEdit: Sendable {
     case setField(LogicalField, String)
+    /// Sets a raw tag (a TagLib property key) to these values; no values
+    /// deletes it. Unlike `setField`, nothing is split, joined or mapped.
+    case setTag(String, [String])
+    /// Replaces one value of a raw tag in each file (an empty value removes it).
+    /// Each file's other values stay as they are.
+    case setTagValue(String, index: Int, String)
+    /// Appends a value to a raw tag in each file.
+    case addTagValue(String, String)
     /// Replaces the front cover (and pictures of type "Other"); keeps other picture types.
     case setFrontCover(Artwork)
     case removeArtwork
@@ -245,6 +273,8 @@ public enum TagEdit: Sendable {
     public var actionName: String {
         switch self {
         case let .setField(field, _): "Edit \(field.label)"
+        case let .setTag(key, values): values.isEmpty ? "Delete \(key)" : "Edit \(key)"
+        case let .setTagValue(key, _, _), let .addTagValue(key, _): "Edit \(key)"
         case .setFrontCover: "Set Cover"
         case .removeArtwork: "Remove Artwork"
         }

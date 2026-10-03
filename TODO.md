@@ -4,10 +4,6 @@ Ideas for future work, roughly in order of usefulness.
 
 ## Larger features
 
-- [ ] **All-tags view.** A panel listing every raw tag (MusicBrainz IDs,
-  ReplayGain, lyrics, custom tags) that can edit, add and delete any of them,
-  across many files at once. The app already preserves these tags but can't
-  show them.
 - [ ] **Tags from file names.** The reverse of rename: fill in tags from a
   pattern such as `%track% - %title%` applied to the file name, with the same
   kind of preview dialog.
@@ -30,6 +26,8 @@ Ideas for future work, roughly in order of usefulness.
 
 ## Done
 
+- [x] **All-tags view:** the All Tags tab lists, edits, adds and deletes every
+  tag, across many files at once.
 - [x] **More formats:** M4A (AAC and Apple Lossless, also .m4b), Ogg Vorbis
   and Opus. M4A covers have no picture type or description; they're shown as
   front covers.

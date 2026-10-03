@@ -65,6 +65,9 @@ struct ContentView: View {
             }
             .navigationSubtitle(subtitle)
             .background(DocumentEditedMarker(isEdited: library.hasUnsavedChanges))
+            // Tags are names, titles and IDs: never "correct" them.
+            .autocorrectionDisabled()
+            .background(AutoFillWarmUp())
             .alert(
                 controller.alert?.title ?? "",
                 isPresented: Binding(get: { controller.alert != nil }, set: { if !$0 { controller.alert = nil } }),
@@ -168,6 +171,51 @@ private struct DocumentEditedMarker: NSViewRepresentable {
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             window?.isDocumentEdited = isEdited
+        }
+    }
+}
+
+/// Works around a macOS 26 quirk. The first time any text field in an app gets
+/// keyboard focus, macOS sets up its AutoFill panel, which briefly takes key
+/// status from the window: the field's focus ring disappears and animates in
+/// again, and an empty panel can flash. Focusing an invisible field once, when
+/// the window opens, gets that setup done before the user clicks anything.
+private struct AutoFillWarmUp: NSViewRepresentable {
+    func makeNSView(context: Context) -> WarmUpView {
+        WarmUpView()
+    }
+
+    func updateNSView(_ view: WarmUpView, context: Context) {}
+
+    final class WarmUpView: NSView {
+        private var hasWarmedUp = false
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            guard !hasWarmedUp, let window, let contentView = window.contentView else { return }
+            hasWarmedUp = true
+
+            // Transparent, and outside the window's visible area.
+            let field = NSTextField(frame: NSRect(x: -10_000, y: -10_000, width: 20, height: 20))
+            field.alphaValue = 0
+            field.isBordered = false
+            field.drawsBackground = false
+            field.focusRingType = .none
+            field.setAccessibilityElement(false)
+            contentView.addSubview(field)
+
+            DispatchQueue.main.async {
+                let previous = window.firstResponder
+                window.makeFirstResponder(field)
+                // macOS finishes its setup within about 0.3 s of the focus.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                    // Hand focus back, unless the user has already moved it.
+                    if (window.firstResponder as? NSTextView)?.delegate === field {
+                        window.makeFirstResponder(previous)
+                    }
+                    field.removeFromSuperview()
+                }
+            }
         }
     }
 }
