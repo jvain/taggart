@@ -4,10 +4,6 @@ Ideas for future work, roughly in order of usefulness.
 
 ## Larger features
 
-- [ ] **More formats: M4A/AAC, Ogg Vorbis, Opus.** TagLib already reads and
-  writes them. The work: accept the file types in `FileScanner` and the open
-  panel, map the few format-specific fields (M4A stores track number and total
-  as a pair, like MP3), add fixtures and tests.
 - [ ] **All-tags view.** A panel listing every raw tag (MusicBrainz IDs,
   ReplayGain, lyrics, custom tags) that can edit, add and delete any of them,
   across many files at once. The app already preserves these tags but can't
@@ -34,6 +30,9 @@ Ideas for future work, roughly in order of usefulness.
 
 ## Done
 
+- [x] **More formats:** M4A (AAC and Apple Lossless, also .m4b), Ogg Vorbis
+  and Opus. M4A covers have no picture type or description; they're shown as
+  front covers.
 - [x] **Unsaved-changes marker** in the window's close button.
 - [x] **Track/Disc numbers are numbers:** other characters are refused with a
   beep; `3/12` sets the total too. Odd values already in files are kept until

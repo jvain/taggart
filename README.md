@@ -1,7 +1,8 @@
 # Taggart
 
 A small, free (MIT) and native macOS app for editing the tags and cover art of
-FLAC and MP3 files, including many files at once.
+audio files, including many files at once: FLAC, MP3, M4A (AAC and Apple
+Lossless), Ogg Vorbis and Opus.
 
 ## Features
 

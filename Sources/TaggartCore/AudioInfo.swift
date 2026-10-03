@@ -4,12 +4,29 @@ import TagBridge
 public enum AudioFormat: String, Sendable, Hashable {
     case mp3 = "MP3"
     case flac = "FLAC"
+    case mp4 = "M4A"
+    case oggVorbis = "Ogg Vorbis"
+    case opus = "Opus"
     case other = "Other"
+
+    /// Whether the format keeps a number and its total in one tag ("3/12"),
+    /// like ID3v2's TRCK and MP4's trkn, rather than in separate tags.
+    var storesTotalWithNumber: Bool {
+        self == .mp3 || self == .mp4
+    }
+}
+
+/// The codec inside an MP4 file.
+public enum AudioCodec: Sendable, Hashable {
+    case unknown
+    case aac
+    case alac
 }
 
 /// Technical properties of an audio file, for display.
 public struct AudioInfo: Sendable, Hashable {
     public var format: AudioFormat
+    public var codec: AudioCodec
     public var duration: TimeInterval
     public var bitrateKbps: Int
     public var sampleRate: Int
@@ -21,10 +38,11 @@ public struct AudioInfo: Sendable, Hashable {
     public var hasID3v1: Bool
     public var isReadOnly: Bool
 
-    public init(format: AudioFormat, duration: TimeInterval = 0, bitrateKbps: Int = 0, sampleRate: Int = 0,
-                channels: Int = 0, bitsPerSample: Int = 0, id3v2Version: Int = 0, hasID3v1: Bool = false,
-                isReadOnly: Bool = false) {
+    public init(format: AudioFormat, codec: AudioCodec = .unknown, duration: TimeInterval = 0, bitrateKbps: Int = 0,
+                sampleRate: Int = 0, channels: Int = 0, bitsPerSample: Int = 0, id3v2Version: Int = 0,
+                hasID3v1: Bool = false, isReadOnly: Bool = false) {
         self.format = format
+        self.codec = codec
         self.duration = duration
         self.bitrateKbps = bitrateKbps
         self.sampleRate = sampleRate
@@ -39,10 +57,19 @@ public struct AudioInfo: Sendable, Hashable {
         let format: AudioFormat = switch info.format {
         case TB_FORMAT_MPEG: .mp3
         case TB_FORMAT_FLAC: .flac
+        case TB_FORMAT_MP4: .mp4
+        case TB_FORMAT_OGG_VORBIS: .oggVorbis
+        case TB_FORMAT_OPUS: .opus
         default: .other
+        }
+        let codec: AudioCodec = switch info.codec {
+        case TB_CODEC_AAC: .aac
+        case TB_CODEC_ALAC: .alac
+        default: .unknown
         }
         self.init(
             format: format,
+            codec: codec,
             duration: TimeInterval(info.length_ms) / 1000,
             bitrateKbps: Int(info.bitrate_kbps),
             sampleRate: Int(info.sample_rate),
@@ -54,16 +81,27 @@ public struct AudioInfo: Sendable, Hashable {
         )
     }
 
-    /// e.g. "FLAC 16-bit 44.1 kHz" or "MP3 320 kbps".
+    /// e.g. "FLAC 16-bit 44.1 kHz", "MP3 320 kbps" or "AAC 256 kbps".
     public var summary: String {
         let kHz = (Double(sampleRate) / 1000).formatted(.number.precision(.fractionLength(0...1)))
+        func lossless(_ name: String) -> String {
+            bitsPerSample > 0 ? "\(name) \(bitsPerSample)-bit \(kHz) kHz" : "\(name) \(kHz) kHz"
+        }
+        func lossy(_ name: String) -> String {
+            bitrateKbps > 0 ? "\(name) \(bitrateKbps) kbps" : name
+        }
         switch format {
-        case .flac:
-            return bitsPerSample > 0 ? "FLAC \(bitsPerSample)-bit \(kHz) kHz" : "FLAC \(kHz) kHz"
-        case .mp3:
-            return "MP3 \(bitrateKbps) kbps"
-        case .other:
-            return format.rawValue
+        case .flac: return lossless("FLAC")
+        case .mp3: return lossy("MP3")
+        case .mp4:
+            switch codec {
+            case .alac: return lossless("ALAC")
+            case .aac: return lossy("AAC")
+            case .unknown: return lossy("M4A")
+            }
+        case .oggVorbis: return lossy("Vorbis")
+        case .opus: return lossy("Opus")
+        case .other: return format.rawValue
         }
     }
 }

@@ -2,7 +2,8 @@ import Foundation
 
 /// Finds supported audio files among opened or dropped URLs.
 public enum FileScanner {
-    public static let supportedExtensions: Set<String> = ["flac", "mp3"]
+    /// FLAC, MP3, MP4 audio (AAC or ALAC; .m4b is audiobooks), Ogg Vorbis and Opus.
+    public static let supportedExtensions: Set<String> = ["flac", "mp3", "m4a", "m4b", "ogg", "oga", "opus"]
 
     public static func isSupported(_ url: URL) -> Bool {
         supportedExtensions.contains(url.pathExtension.lowercased())

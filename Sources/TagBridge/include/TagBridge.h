@@ -21,7 +21,16 @@ typedef enum {
     TB_FORMAT_OTHER = 0,
     TB_FORMAT_MPEG = 1,
     TB_FORMAT_FLAC = 2,
+    TB_FORMAT_MP4 = 3,
+    TB_FORMAT_OGG_VORBIS = 4,
+    TB_FORMAT_OPUS = 5,
 } tb_format;
+
+typedef enum {
+    TB_CODEC_UNKNOWN = 0,
+    TB_CODEC_AAC = 1,
+    TB_CODEC_ALAC = 2,
+} tb_codec;
 
 typedef enum {
     /// Keep the version of the tag already in the file (ID3v2.2 is written as
@@ -33,6 +42,8 @@ typedef enum {
 
 typedef struct {
     tb_format format;
+    /// The codec inside an MP4 file; unknown for other formats.
+    tb_codec codec;
     int length_ms;
     int bitrate_kbps;
     int sample_rate;
@@ -95,7 +106,8 @@ tb_property_list tb_get_properties(const tb_file *file);
 tb_property_list tb_set_properties(tb_file *file, const tb_property *items, size_t count);
 void tb_property_list_free(tb_property_list list);
 
-/// Embedded pictures (FLAC PICTURE blocks, ID3v2 APIC frames).
+/// Embedded pictures (FLAC and Ogg PICTURE blocks, ID3v2 APIC frames, MP4
+/// covr atoms). MP4 stores no picture type; those are reported as front covers.
 tb_picture_list tb_get_pictures(const tb_file *file);
 /// Replaces all embedded pictures.
 bool tb_set_pictures(tb_file *file, const tb_picture *items, size_t count);

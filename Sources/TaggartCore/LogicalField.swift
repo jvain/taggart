@@ -174,9 +174,8 @@ extension TagSnapshot {
         }
         let editedTotal = field == .trackTotal || field == .discTotal
 
-        switch format {
-        case .mp3:
-            // One frame holds both. Fold any separate total (a TXXX frame) into it.
+        if format.storesTotalWithNumber {
+            // One tag holds both. Fold any separate total (e.g. a TXXX frame) into it.
             if number.isEmpty {
                 fields[keys.number] = nil
                 setTotal(total, keys: keys)
@@ -184,7 +183,7 @@ extension TagSnapshot {
                 fields[keys.number] = [total.isEmpty ? number : "\(number)/\(total)"]
                 setTotal("", keys: keys)
             }
-        case .flac, .other:
+        } else {
             // Only touch the total fields when the total was edited or used to be
             // embedded in the number field ("3/12"), to avoid renaming keys needlessly.
             let hadEmbeddedTotal = !Self.splitNumber(first(keys.number)).total.isEmpty

@@ -18,7 +18,8 @@ final class AppController {
     @ObservationIgnored var undoManager: UndoManager?
     @ObservationIgnored var openWindow: OpenWindowAction?
 
-    static let audioTypes: [UTType] = [.mp3, UTType("org.xiph.flac")].compactMap { $0 }
+    /// The file types the Open panel offers, from the supported extensions.
+    static let audioTypes: [UTType] = Array(Set(FileScanner.supportedExtensions.compactMap { UTType(filenameExtension: $0) }))
 
     var selectedItems: [AudioFileItem] { library.items(selection) }
 
@@ -29,7 +30,7 @@ final class AppController {
         panel.allowsMultipleSelection = true
         panel.canChooseDirectories = true
         panel.allowedContentTypes = Self.audioTypes + [.folder]
-        panel.message = "Choose FLAC or MP3 files, or folders containing them."
+        panel.message = "Choose audio files (FLAC, MP3, M4A, Ogg Vorbis, Opus), or folders containing them."
         guard panel.runModal() == .OK else { return }
         add(panel.urls)
     }

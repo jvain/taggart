@@ -39,10 +39,18 @@ func edit(
     return try TagIO.read(url)
 }
 
+struct NoAudioFound: Error {}
+
 /// SHA-256 of the audio payload: the bytes outside the tags.
 func audioDigest(of url: URL) throws -> SHA256.Digest {
     let data = try Data(contentsOf: url)
     let bytes = [UInt8](data)
+    if bytes.starts(with: Array("OggS".utf8)) {
+        return try oggAudioDigest(bytes)
+    }
+    if bytes.count >= 8, bytes[4..<8].elementsEqual(Array("ftyp".utf8)) {
+        return try mp4AudioDigest(bytes)
+    }
     var start = 0
     var end = bytes.count
     if bytes.starts(with: Array("fLaC".utf8)) {
@@ -70,6 +78,53 @@ func audioDigest(of url: URL) throws -> SHA256.Digest {
         }
     }
     return SHA256.hash(data: Data(bytes[start..<end]))
+}
+
+/// Ogg: the payload of the audio pages. Saving tags may re-paginate the header
+/// packets and renumber later pages (changing their headers), but never their
+/// payload. Header pages are those with granule position 0.
+private func oggAudioDigest(_ bytes: [UInt8]) throws -> SHA256.Digest {
+    var audio = Data()
+    var position = 0
+    while position + 27 <= bytes.count, bytes[position..<(position + 4)].elementsEqual(Array("OggS".utf8)) {
+        // Little-endian 64-bit granule position at offset 6.
+        let granule = bytes[(position + 6)..<(position + 14)].reversed().reduce(UInt64(0)) { $0 << 8 | UInt64($1) }
+        let segmentCount = Int(bytes[position + 26])
+        let bodyStart = position + 27 + segmentCount
+        let bodyLength = bytes[(position + 27)..<bodyStart].reduce(0) { $0 + Int($1) }
+        if granule != 0 {
+            audio.append(contentsOf: bytes[bodyStart..<(bodyStart + bodyLength)])
+        }
+        position = bodyStart + bodyLength
+    }
+    guard !audio.isEmpty else { throw NoAudioFound() }
+    return SHA256.hash(data: audio)
+}
+
+/// MP4: the contents of the top-level mdat boxes, which hold the audio.
+private func mp4AudioDigest(_ bytes: [UInt8]) throws -> SHA256.Digest {
+    func bigEndian(_ range: Range<Int>) -> Int {
+        bytes[range].reduce(0) { $0 << 8 | Int($1) }
+    }
+    var audio = Data()
+    var position = 0
+    while position + 8 <= bytes.count {
+        var size = bigEndian(position..<(position + 4))
+        var headerLength = 8
+        if size == 1 {
+            size = bigEndian((position + 8)..<(position + 16))
+            headerLength = 16
+        } else if size == 0 {
+            size = bytes.count - position
+        }
+        guard size >= headerLength else { break }
+        if bytes[(position + 4)..<(position + 8)].elementsEqual(Array("mdat".utf8)) {
+            audio.append(contentsOf: bytes[(position + headerLength)..<(position + size)])
+        }
+        position += size
+    }
+    guard !audio.isEmpty else { throw NoAudioFound() }
+    return SHA256.hash(data: audio)
 }
 
 /// Major ID3v2 version in the file header, or nil if there's no ID3v2 tag.

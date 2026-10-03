@@ -12,7 +12,11 @@
 #include <taglib/flacproperties.h>
 #include <taglib/id3v2header.h>
 #include <taglib/id3v2tag.h>
+#include <taglib/mp4file.h>
+#include <taglib/mp4properties.h>
 #include <taglib/mpegfile.h>
+#include <taglib/opusfile.h>
+#include <taglib/vorbisfile.h>
 #include <taglib/tpicturetype.h>
 #include <taglib/tpropertymap.h>
 #include <taglib/tvariant.h>
@@ -123,6 +127,15 @@ tb_info tb_get_info(const tb_file *file) {
     else if(dynamic_cast<TagLib::FLAC::File *>(f)) {
         info.format = TB_FORMAT_FLAC;
     }
+    else if(dynamic_cast<TagLib::MP4::File *>(f)) {
+        info.format = TB_FORMAT_MP4;
+    }
+    else if(dynamic_cast<TagLib::Ogg::Vorbis::File *>(f)) {
+        info.format = TB_FORMAT_OGG_VORBIS;
+    }
+    else if(dynamic_cast<TagLib::Ogg::Opus::File *>(f)) {
+        info.format = TB_FORMAT_OPUS;
+    }
     if(const TagLib::AudioProperties *properties = file->ref.audioProperties()) {
         info.length_ms = properties->lengthInMilliseconds();
         info.bitrate_kbps = properties->bitrate();
@@ -130,6 +143,16 @@ tb_info tb_get_info(const tb_file *file) {
         info.channels = properties->channels();
         if(auto flac = dynamic_cast<const TagLib::FLAC::Properties *>(properties))
             info.bits_per_sample = flac->bitsPerSample();
+        if(auto mp4 = dynamic_cast<const TagLib::MP4::Properties *>(properties)) {
+            switch(mp4->codec()) {
+            case TagLib::MP4::Properties::AAC: info.codec = TB_CODEC_AAC; break;
+            case TagLib::MP4::Properties::ALAC:
+                info.codec = TB_CODEC_ALAC;
+                info.bits_per_sample = mp4->bitsPerSample();
+                break;
+            default: break;
+            }
+        }
     }
     return info;
 }
@@ -182,6 +205,7 @@ tb_picture_list tb_get_pictures(const tb_file *file) {
             pictures = file->ref.complexProperties(kPictureKey);
         if(pictures.isEmpty())
             return list;
+        const bool isMP4 = dynamic_cast<TagLib::MP4::File *>(file->ref.file()) != nullptr;
 
         list.items = static_cast<tb_picture *>(std::calloc(pictures.size(), sizeof(tb_picture)));
         if(!list.items)
@@ -196,7 +220,9 @@ tb_picture_list tb_get_pictures(const tb_file *file) {
             picture.size = data.size();
             picture.mime_type = copyString(properties.value("mimeType").value<TagLib::String>());
             picture.description = copyString(properties.value("description").value<TagLib::String>());
-            picture.picture_type = TagLib::Utils::pictureTypeFromString(properties.value("pictureType").value<TagLib::String>());
+            picture.picture_type = isMP4
+                ? 3  // MP4 cover art has no type: it's the cover.
+                : TagLib::Utils::pictureTypeFromString(properties.value("pictureType").value<TagLib::String>());
             picture.width = properties.value("width").value<int>();
             picture.height = properties.value("height").value<int>();
             picture.color_depth = properties.value("colorDepth").value<int>();

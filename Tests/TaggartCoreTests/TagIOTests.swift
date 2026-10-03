@@ -42,6 +42,47 @@ struct ReadingTests {
         #expect(legacy.snapshot.value(of: .title) == "Legacy Title")
     }
 
+    @Test func readsM4A() throws {
+        let aac = try TagIO.read(fixture("basic.m4a"))
+        #expect(aac.info.format == .mp4)
+        #expect(aac.info.codec == .aac)
+        #expect(aac.info.summary.hasPrefix("AAC "))
+        #expect(aac.snapshot.value(of: .title) == "M4a Title")
+        #expect(aac.snapshot.value(of: .albumArtist) == "M4a Band")
+        #expect(aac.snapshot.value(of: .trackNumber) == "4")
+        #expect(aac.snapshot.value(of: .trackTotal) == "10")
+        #expect(aac.snapshot.value(of: .discNumber) == "1")
+        #expect(aac.snapshot.value(of: .discTotal) == "2")
+        #expect(aac.snapshot.value(of: .date) == "2005")
+        #expect(aac.snapshot.value(of: .genre) == "Jazz")
+
+        let alac = try TagIO.read(fixture("cover.m4a"))
+        #expect(alac.info.codec == .alac)
+        // The sample rate is formatted for the user's locale ("44.1" or "44,1").
+        #expect(alac.info.summary.hasPrefix("ALAC 16-bit 44"))
+        #expect(alac.info.summary.hasSuffix("1 kHz"))
+        // MP4 covers have no picture type; they're the cover.
+        #expect(alac.snapshot.artwork.map(\.type) == [.frontCover])
+        #expect(alac.snapshot.artwork.first?.mimeType == "image/png")
+        #expect(alac.snapshot.artwork.first?.width == 64)
+    }
+
+    @Test func readsOggVorbisAndOpus() throws {
+        let vorbis = try TagIO.read(fixture("basic.ogg"))
+        #expect(vorbis.info.format == .oggVorbis)
+        #expect(vorbis.info.summary.hasPrefix("Vorbis"))
+        #expect(vorbis.snapshot.value(of: .title) == "Ogg Title")
+        #expect(vorbis.snapshot.value(of: .trackNumber) == "2")
+        #expect(vorbis.snapshot.value(of: .trackTotal) == "7")
+        #expect(vorbis.snapshot.fields["CUSTOM_KEY"] == ["keep me"])
+
+        let opus = try TagIO.read(fixture("basic.opus"))
+        #expect(opus.info.format == .opus)
+        #expect(opus.info.sampleRate == 48000)
+        #expect(opus.snapshot.value(of: .title) == "Opus Title")
+        #expect(opus.snapshot.value(of: .trackNumber) == "6")
+    }
+
     @Test func readsArtwork() throws {
         let flac = try TagIO.read(fixture("cover.flac")).snapshot.artwork
         #expect(flac.map(\.type) == [.frontCover, .backCover])
@@ -73,7 +114,10 @@ struct ReadingTests {
 
 @Suite("Writing")
 struct WritingTests {
-    static let files = ["basic.flac", "basic.mp3", "legacy.mp3", "cover.flac", "cover.mp3"]
+    static let files = [
+        "basic.flac", "basic.mp3", "legacy.mp3", "cover.flac", "cover.mp3",
+        "basic.m4a", "cover.m4a", "basic.ogg", "basic.opus",
+    ]
 
     @Test(arguments: files)
     func roundTripsEveryField(_ name: String) throws {
@@ -117,6 +161,33 @@ struct WritingTests {
         }
         #expect(mp3.snapshot.fields["CUSTOM_KEY"] == ["keep me"])
         #expect(mp3.snapshot.value(of: .trackTotal) == "9")
+    }
+
+    @Test(arguments: ["basic.ogg", "basic.opus"])
+    func keepsCustomTagsInOgg(_ name: String) throws {
+        let loaded = try edit(fixture(name)) { tags, format in
+            tags.set(.title, to: "New", format: format)
+        }
+        #expect(loaded.snapshot.fields["CUSTOM_KEY"] == ["keep me"])
+        #expect(loaded.snapshot.fields["ARTIST"]?.isEmpty == false)
+    }
+
+    @Test func keepsCustomTagsInM4A() throws {
+        let url = try fixture("basic.m4a")
+        try edit(url) { tags, _ in tags.fields["CUSTOM_KEY"] = ["keep me"] }
+        let loaded = try edit(url) { tags, format in tags.set(.title, to: "New", format: format) }
+        #expect(loaded.snapshot.fields["CUSTOM_KEY"] == ["keep me"])
+        #expect(loaded.snapshot.value(of: .albumArtist) == "M4a Band")
+    }
+
+    @Test func m4aTrackTotalLivesInTrackNumber() throws {
+        let loaded = try edit(fixture("basic.m4a")) { tags, format in
+            tags.set(.trackTotal, to: "11", format: format)
+            tags.set(.discNumber, to: "2", format: format)
+        }
+        #expect(loaded.snapshot.fields["TRACKNUMBER"] == ["4/11"])
+        #expect(loaded.snapshot.fields["DISCNUMBER"] == ["2/2"])
+        #expect(loaded.snapshot.fields["TRACKTOTAL"] == nil)
     }
 
     @Test func splitsMultipleValues() throws {
@@ -296,7 +367,7 @@ struct ArtworkTests {
         #expect(try TagIO.data(of: artwork[0], in: url) == fixtureData("blue.jpg"))
     }
 
-    @Test(arguments: ["basic.mp3", "cover.mp3", "basic.flac"])
+    @Test(arguments: ["basic.mp3", "cover.mp3", "basic.flac", "basic.m4a", "cover.m4a", "basic.ogg", "basic.opus"])
     func setsCover(_ name: String) throws {
         let url = try fixture(name)
         let blue = try newArtwork()
@@ -307,7 +378,21 @@ struct ArtworkTests {
         #expect(reloaded.snapshot.primaryArtwork?.digest == blue.digest)
     }
 
-    @Test(arguments: ["cover.mp3", "cover.flac"])
+    @Test func oggKeepsOtherPictureTypes() throws {
+        let url = try fixture("basic.ogg")
+        var back = try newArtwork()
+        back.type = .backCover
+        try edit(url) { tags, _ in tags.artwork = [back] }
+        let front = try ArtworkImage.artwork(from: TagIO.data(of: TagIO.read(fixture("cover.flac")).snapshot.artwork[0],
+                                                              in: fixture("cover.flac")))
+        let reloaded = try edit(url) { tags, format in
+            tags = tags.applying(.setFrontCover(front), format: format)
+        }
+        #expect(reloaded.snapshot.artwork.map(\.type) == [.frontCover, .backCover])
+        #expect(reloaded.snapshot.artwork.map(\.digest) == [front.digest, back.digest])
+    }
+
+    @Test(arguments: ["cover.mp3", "cover.flac", "cover.m4a"])
     func removesArtwork(_ name: String) throws {
         let url = try fixture(name)
         let reloaded = try edit(url) { tags, format in
