@@ -5,6 +5,7 @@ struct ContentView: View {
     @Environment(AppController.self) private var controller
     @Environment(\.undoManager) private var undoManager
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.openSettings) private var openSettings
     @ViewState private var showInspector = true
     @ViewState private var query = ""
     @ViewState private var isDropTargeted = false
@@ -54,6 +55,8 @@ struct ContentView: View {
                     Button("Rename", systemImage: "rectangle.and.pencil.and.ellipsis") { controller.showRenameSheet() }
                         .help("Rename the selected files from their tags (⇧⌘R)")
                         .disabled(controller.selection.isEmpty || library.isSaving)
+                    Button("Settings", systemImage: "gearshape") { openSettings() }
+                        .help("Settings (⌘,)")
                 }
                 ToolbarItem(placement: .primaryAction) {
                     Button("Inspector", systemImage: "sidebar.trailing") { showInspector.toggle() }

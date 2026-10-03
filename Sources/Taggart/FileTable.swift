@@ -96,6 +96,7 @@ struct FileTable: View {
             }
         }
         .onDeleteCommand { controller.removeSelected() }
+        .background(FitColumnsOnAppear())
     }
 
     private var sortedItems: [AudioFileItem] {
@@ -132,6 +133,69 @@ private struct CoverThumbnail: View {
                 .frame(width: 18, height: 18)
                 .clipShape(RoundedRectangle(cornerRadius: 2))
                 .help("\(artwork.width) × \(artwork.height)")
+        }
+    }
+}
+
+/// Fits the table's columns to its width when it first appears.
+///
+/// The columns start at their ideal widths, and the underlying NSTableView
+/// only refits them when its size changes. In a window narrower than the ideal
+/// widths (macOS restores the last window size), the list would start out
+/// scrolling sideways until the next resize. SwiftUI has no API for this, so
+/// this asks the nearest NSTableView directly; if there is none, it does nothing.
+private struct FitColumnsOnAppear: NSViewRepresentable {
+    func makeNSView(context: Context) -> FittingView {
+        FittingView()
+    }
+
+    func updateNSView(_ view: FittingView, context: Context) {}
+
+    final class FittingView: NSView {
+        private var hasFitted = false
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            fitOnce()
+        }
+
+        override func setFrameSize(_ newSize: NSSize) {
+            super.setFrameSize(newSize)
+            fitOnce()
+        }
+
+        private func fitOnce() {
+            guard !hasFitted, window != nil, frame.width > 0 else { return }
+            hasFitted = true
+            // After the current layout pass, once the table has its size.
+            DispatchQueue.main.async { [weak self] in
+                self?.nearestTable()?.sizeToFit()
+            }
+        }
+
+        /// The table this view is the background of: the first NSTableView found
+        /// searching outward from here.
+        private func nearestTable() -> NSTableView? {
+            var ancestor = superview
+            while let view = ancestor {
+                if let table = Self.firstTable(in: view) {
+                    return table
+                }
+                ancestor = view.superview
+            }
+            return nil
+        }
+
+        private static func firstTable(in view: NSView) -> NSTableView? {
+            if let table = view as? NSTableView {
+                return table
+            }
+            for subview in view.subviews {
+                if let table = firstTable(in: subview) {
+                    return table
+                }
+            }
+            return nil
         }
     }
 }
