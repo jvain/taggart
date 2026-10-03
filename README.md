@@ -17,6 +17,11 @@ FLAC and MP3 files, including many files at once.
   file. The new cover replaces the front cover of every selected file and keeps
   other pictures (back cover, artist, …). Covers can also be removed or
   exported. HEIC, TIFF, WebP and other formats are converted to JPEG.
+- **Rename files from tags:** select files and click the rename button in the
+  toolbar or choose File → Rename Files from Tags… (⇧⌘R), with a pattern such as `%track% - %title%`. A preview shows
+  each new name. Files that would collide with an existing file, or with each
+  other, are skipped, and files missing a tag the pattern uses are flagged.
+  Renames happen right away and can be undone with ⌘Z.
 - **Undo/redo** (⌘Z / ⌘⇧Z) for every edit until you save. Edits stay pending
   (marked with a dot) until you save with ⌘S. **Revert Selected** re-reads
   files from disk.
@@ -34,18 +39,41 @@ Requirements: macOS 14 or later to run, and Swift 6.2 or later (Xcode or just
 the Command Line Tools) to build.
 
 ```sh
-scripts/build-app.sh      # → build/Taggart.app (release, ad-hoc signed)
+scripts/build-app.sh      # → build/Taggart.app (for this Mac, ad-hoc signed)
 open build/Taggart.app
 
 swift run Taggart         # debug build, run directly
 scripts/test.sh           # run the test suite
 ```
 
-To install, copy `build/Taggart.app` to `/Applications`.
+To install, drag `build/Taggart.app` into Applications.
 
-The app is ad-hoc signed, not notarized. A copy built on another Mac must be
-allowed once in System Settings → Privacy & Security. A copy you build
-yourself opens normally.
+### Releases
+
+```sh
+scripts/build-app.sh --release
+```
+
+This makes a universal (Apple silicon + Intel) build and zips it as
+`build/Taggart-<version>.zip`, with the license files in
+`Taggart.app/Contents/Resources/Licenses`. The version comes from
+`CFBundleShortVersionString` in `Resources/Info.plist`; bump it (and
+`CFBundleVersion`) before a release.
+
+Such a build is ad-hoc signed, so on other Macs people must allow it once in
+System Settings → Privacy & Security → Open Anyway. To make it open normally
+everywhere, sign it with a Developer ID certificate (Apple Developer Program)
+and have Apple notarize it:
+
+```sh
+# Once: save notarization credentials (uses an app-specific password).
+xcrun notarytool store-credentials taggart --apple-id <Apple ID> --team-id <team ID>
+
+scripts/build-app.sh --sign "Developer ID Application: Your Name (TEAMID)" --notarize taggart
+```
+
+This signs with the hardened runtime, submits the zip to Apple's notary service,
+waits for approval, staples the ticket to the app and zips it again.
 
 `scripts/test.sh` wraps `swift test`, because with only the Command Line Tools
 installed SwiftPM doesn't find Swift Testing's macro plugin by itself. For the

@@ -42,7 +42,7 @@ struct ContentView: View {
             .searchable(text: $query, placement: .toolbar, prompt: "Filter")
             .inspector(isPresented: $showInspector) {
                 TagInspector()
-                    .inspectorColumnWidth(min: 280, ideal: 320, max: 460)
+                    .inspectorColumnWidth(min: 300, ideal: 330, max: 460)
             }
             .toolbar {
                 ToolbarItemGroup(placement: .navigation) {
@@ -51,6 +51,9 @@ struct ContentView: View {
                     Button("Save", systemImage: "square.and.arrow.down") { Task { await controller.save() } }
                         .help("Save all modified files (⌘S)")
                         .disabled(!library.hasUnsavedChanges || library.isSaving)
+                    Button("Rename", systemImage: "rectangle.and.pencil.and.ellipsis") { controller.showRenameSheet() }
+                        .help("Rename the selected files from their tags (⇧⌘R)")
+                        .disabled(controller.selection.isEmpty || library.isSaving)
                 }
                 ToolbarItem(placement: .primaryAction) {
                     Button("Inspector", systemImage: "sidebar.trailing") { showInspector.toggle() }
@@ -67,6 +70,10 @@ struct ContentView: View {
             } message: { alert in
                 Text(alert.messages.prefix(10).joined(separator: "\n\n")
                     + (alert.messages.count > 10 ? "\n\n…and \(alert.messages.count - 10) more." : ""))
+            }
+            .sheet(item: $controller.renameRequest) { request in
+                RenameSheet(ids: request.ids)
+                    .environment(controller)
             }
             .onAppear {
                 controller.undoManager = undoManager

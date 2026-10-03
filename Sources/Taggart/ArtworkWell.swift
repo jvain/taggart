@@ -6,7 +6,7 @@ import UniformTypeIdentifiers
 /// Shows the selection's cover and lets the user replace, remove or export it.
 /// Accepts dropped image files or image data, and ⌘V.
 struct ArtworkWell: View {
-    let ids: Set<URL>
+    let ids: Set<AudioFileItem.ID>
     @Environment(AppController.self) private var controller
     @ViewState private var isTargeted = false
     /// A sharper image than the cached thumbnail, loaded on demand.

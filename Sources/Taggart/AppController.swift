@@ -8,8 +8,9 @@ import UniformTypeIdentifiers
 @Observable
 final class AppController {
     let library = Library()
-    var selection = Set<URL>()
+    var selection = Set<AudioFileItem.ID>()
     var alert: AppAlert?
+    var renameRequest: RenameRequest?
 
     /// The main window's undo manager and window opener, captured from its environment.
     @ObservationIgnored var undoManager: UndoManager?
@@ -65,7 +66,7 @@ final class AppController {
 
     // MARK: Editing
 
-    func apply(_ edit: TagEdit, to ids: Set<URL>) {
+    func apply(_ edit: TagEdit, to ids: Set<AudioFileItem.ID>) {
         library.apply(edit, to: ids, undoManager: undoManager)
     }
 
@@ -88,9 +89,26 @@ final class AppController {
         return failures.isEmpty
     }
 
+    // MARK: Renaming
+
+    func showRenameSheet() {
+        guard !selection.isEmpty else { return }
+        renameRequest = RenameRequest(ids: selection)
+    }
+
+    func rename(_ plans: [RenamePlan]) {
+        let failures = library.rename(plans, undoManager: undoManager)
+        if !failures.isEmpty {
+            alert = AppAlert(
+                title: failures.count == 1 ? "A file couldn't be renamed" : "\(failures.count) files couldn't be renamed",
+                messages: failures
+            )
+        }
+    }
+
     // MARK: Artwork
 
-    func chooseArtwork(for ids: Set<URL>) {
+    func chooseArtwork(for ids: Set<AudioFileItem.ID>) {
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.image]
         panel.message = "Choose a cover image."
@@ -98,7 +116,7 @@ final class AppController {
         setArtwork(for: ids) { try ArtworkImage.artwork(contentsOf: url) }
     }
 
-    func pasteArtwork(for ids: Set<URL>) {
+    func pasteArtwork(for ids: Set<AudioFileItem.ID>) {
         guard let data = Pasteboard.imageData() else {
             NSSound.beep()
             return
@@ -106,7 +124,7 @@ final class AppController {
         setArtwork(for: ids) { try ArtworkImage.artwork(from: data) }
     }
 
-    func setArtwork(for ids: Set<URL>, _ make: () throws -> Artwork) {
+    func setArtwork(for ids: Set<AudioFileItem.ID>, _ make: () throws -> Artwork) {
         do {
             apply(.setFrontCover(try make()), to: ids)
         } catch {
@@ -175,6 +193,11 @@ final class AppController {
             return .terminateNow
         }
     }
+}
+
+struct RenameRequest: Identifiable {
+    let id = UUID()
+    var ids: Set<AudioFileItem.ID>
 }
 
 struct AppAlert: Identifiable {

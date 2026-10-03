@@ -3,7 +3,7 @@ import TaggartCore
 
 struct FileTable: View {
     let items: [AudioFileItem]
-    @Binding var selection: Set<URL>
+    @Binding var selection: Set<AudioFileItem.ID>
     @Environment(AppController.self) private var controller
     @ViewState private var sortOrder: [KeyPathComparator<AudioFileItem>] = []
     @SceneStorage("FileTableColumns") private var columns = TableColumnCustomization<AudioFileItem>()
@@ -74,10 +74,15 @@ struct FileTable: View {
                 .customizationID("cover")
             }
         }
-        .contextMenu(forSelectionType: URL.self) { ids in
+        .contextMenu(forSelectionType: AudioFileItem.ID.self) { ids in
             if !ids.isEmpty {
                 Button("Reveal in Finder") {
-                    NSWorkspace.shared.activateFileViewerSelecting(Array(ids))
+                    controller.selection = ids
+                    controller.revealSelectedInFinder()
+                }
+                Button("Rename from Tags…") {
+                    controller.selection = ids
+                    controller.showRenameSheet()
                 }
                 Button("Revert") {
                     controller.selection = ids

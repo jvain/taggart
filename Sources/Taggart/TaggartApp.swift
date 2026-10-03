@@ -26,6 +26,10 @@ struct TaggartApp: App {
                     .disabled(!controller.library.hasUnsavedChanges || controller.library.isSaving)
                 Button("Revert Selected") { controller.revertSelected() }
                     .disabled(controller.selection.isEmpty)
+                Divider()
+                Button("Rename Files from Tags…") { controller.showRenameSheet() }
+                    .keyboardShortcut("r", modifiers: [.command, .shift])
+                    .disabled(controller.selection.isEmpty || controller.library.isSaving)
             }
             CommandGroup(after: .pasteboard) {
                 Divider()

@@ -5,7 +5,9 @@ import Observation
 /// One loaded file. Used only on the main actor (through `Library`).
 @Observable
 public final class AudioFileItem: Identifiable {
-    public let url: URL
+    /// Stable for the item's lifetime, unlike `url`, which changes on rename.
+    public let id = UUID()
+    public fileprivate(set) var url: URL
     public private(set) var info: AudioInfo
     /// The tags as they are on disk.
     public fileprivate(set) var original: TagSnapshot
@@ -14,8 +16,6 @@ public final class AudioFileItem: Identifiable {
     public fileprivate(set) var modificationDate: Date?
     /// The last load or save error, if any.
     public fileprivate(set) var error: String?
-
-    public var id: URL { url }
 
     init(_ loaded: LoadedFile) {
         url = loaded.url
@@ -68,14 +68,18 @@ public final class Library {
     public var id3v2Version: ID3v2WriteVersion = .keep
     public let thumbnails = ThumbnailCache()
 
+    @ObservationIgnored private var itemsByID: [AudioFileItem.ID: AudioFileItem] = [:]
     @ObservationIgnored private var itemsByURL: [URL: AudioFileItem] = [:]
     private var activeLoads = 0
 
     public init() {}
 
-    public func item(_ id: URL) -> AudioFileItem? { itemsByURL[id] }
+    public func item(_ id: AudioFileItem.ID) -> AudioFileItem? { itemsByID[id] }
 
-    public func items(_ ids: Set<URL>) -> [AudioFileItem] {
+    public func item(at url: URL) -> AudioFileItem? { itemsByURL[url] }
+
+    /// The items with these IDs, in list order.
+    public func items(_ ids: Set<AudioFileItem.ID>) -> [AudioFileItem] {
         items.filter { ids.contains($0.id) }
     }
 
@@ -104,6 +108,7 @@ public final class Library {
                 guard itemsByURL[url] == nil else { continue }
                 let item = AudioFileItem(loaded)
                 items.append(item)
+                itemsByID[item.id] = item
                 itemsByURL[url] = item
             case let .failure(error):
                 failures.append(error.localizedDescription)
@@ -113,26 +118,27 @@ public final class Library {
     }
 
     /// Removes files from the list (the files themselves are untouched).
-    public func remove(_ ids: Set<URL>) {
-        items.removeAll { ids.contains($0.id) }
-        for id in ids {
-            itemsByURL[id] = nil
+    public func remove(_ ids: Set<AudioFileItem.ID>) {
+        for item in items(ids) {
+            itemsByID[item.id] = nil
+            itemsByURL[item.url] = nil
         }
+        items.removeAll { ids.contains($0.id) }
     }
 
     // MARK: Editing
 
-    public func fieldState(_ field: LogicalField, for ids: Set<URL>) -> FieldState {
+    public func fieldState(_ field: LogicalField, for ids: Set<AudioFileItem.ID>) -> FieldState {
         FieldState(items(ids).lazy.map { $0.value(field) })
     }
 
-    public func artworkState(for ids: Set<URL>) -> ArtworkState {
+    public func artworkState(for ids: Set<AudioFileItem.ID>) -> ArtworkState {
         ArtworkState(items(ids).lazy.map(\.edited))
     }
 
     /// The first selected file's displayed picture, with the file holding it
     /// (embedded pictures can only be read back from their own file).
-    public func primaryArtwork(in ids: Set<URL>) -> (artwork: Artwork, url: URL)? {
+    public func primaryArtwork(in ids: Set<AudioFileItem.ID>) -> (artwork: Artwork, url: URL)? {
         for item in items(ids) {
             if let artwork = item.edited.primaryArtwork {
                 return (artwork, item.url)
@@ -142,11 +148,11 @@ public final class Library {
     }
 
     /// Applies one edit to every file in `ids`, as one undoable action.
-    public func apply(_ edit: TagEdit, to ids: Set<URL>, undoManager: UndoManager?) {
+    public func apply(_ edit: TagEdit, to ids: Set<AudioFileItem.ID>, undoManager: UndoManager?) {
         if case let .setFrontCover(artwork) = edit, case let .new(data) = artwork.source {
             thumbnails.add(data, digest: artwork.digest)
         }
-        var snapshots: [URL: TagSnapshot] = [:]
+        var snapshots: [AudioFileItem.ID: TagSnapshot] = [:]
         for item in items(ids) {
             let snapshot = item.edited.applying(edit, format: item.info.format)
             if snapshot != item.edited {
@@ -158,10 +164,10 @@ public final class Library {
 
     /// Discards unsaved edits, re-reading the files from disk so changes made by
     /// other apps are picked up. Undoable: undo re-applies the edits.
-    public func revert(_ ids: Set<URL>, undoManager: UndoManager?) async {
+    public func revert(_ ids: Set<AudioFileItem.ID>, undoManager: UndoManager?) async {
         let targets = items(ids)
         let results = await read(targets.map(\.url))
-        var snapshots: [URL: TagSnapshot] = [:]
+        var snapshots: [AudioFileItem.ID: TagSnapshot] = [:]
         for (item, result) in zip(targets, results) {
             snapshots[item.id] = item.edited
             switch result {
@@ -173,21 +179,21 @@ public final class Library {
             }
         }
         // `snapshots` holds the edits being discarded: register their restoration.
-        let restored = snapshots.filter { id, snapshot in itemsByURL[id]?.edited != snapshot }
+        let restored = snapshots.filter { id, snapshot in itemsByID[id]?.edited != snapshot }
         registerUndo(restoring: restored, actionName: "Revert", undoManager: undoManager)
     }
 
-    private func setEdited(_ snapshots: [URL: TagSnapshot], actionName: String, undoManager: UndoManager?) {
-        var previous: [URL: TagSnapshot] = [:]
+    private func setEdited(_ snapshots: [AudioFileItem.ID: TagSnapshot], actionName: String, undoManager: UndoManager?) {
+        var previous: [AudioFileItem.ID: TagSnapshot] = [:]
         for (id, snapshot) in snapshots {
-            guard let item = itemsByURL[id] else { continue }
+            guard let item = itemsByID[id] else { continue }
             previous[id] = item.edited
             item.edited = snapshot
         }
         registerUndo(restoring: previous, actionName: actionName, undoManager: undoManager)
     }
 
-    private func registerUndo(restoring snapshots: [URL: TagSnapshot], actionName: String, undoManager: UndoManager?) {
+    private func registerUndo(restoring snapshots: [AudioFileItem.ID: TagSnapshot], actionName: String, undoManager: UndoManager?) {
         guard let undoManager, !snapshots.isEmpty else { return }
         undoManager.registerUndo(withTarget: self) { [weak undoManager] library in
             MainActor.assumeIsolated {
@@ -204,7 +210,7 @@ public final class Library {
     @discardableResult
     public func save(undoManager: UndoManager?) async -> [String] {
         let jobs = dirtyItems.map {
-            SaveJob(url: $0.url, original: $0.original, edited: $0.edited, modificationDate: $0.modificationDate)
+            SaveJob(id: $0.id, url: $0.url, original: $0.original, edited: $0.edited, modificationDate: $0.modificationDate)
         }
         guard !jobs.isEmpty else { return [] }
         isSaving = true
@@ -227,7 +233,7 @@ public final class Library {
 
         var failures: [String] = []
         for (job, result) in zip(jobs, results) {
-            guard let item = itemsByURL[job.url] else { continue }
+            guard let item = itemsByID[job.id] else { continue }
             switch result {
             case let .success(loaded):
                 // Keep edits made while saving (e.g. an undo); they stay pending.
@@ -242,6 +248,7 @@ public final class Library {
     }
 
     private struct SaveJob: Sendable {
+        var id: AudioFileItem.ID
         var url: URL
         var original: TagSnapshot
         var edited: TagSnapshot
@@ -264,6 +271,70 @@ public final class Library {
             )
             return try TagIO.read(job.url, thumbnails: thumbnails)
         }
+    }
+
+    // MARK: Renaming
+
+    /// What renaming the files in `ids` with `pattern` would do, in list order.
+    /// Files that would collide with an existing file or with each other are
+    /// skipped rather than renamed.
+    public func planRename(_ ids: Set<AudioFileItem.ID>, pattern: RenamePattern) -> [RenamePlan] {
+        guard pattern.error == nil else { return [] }
+        var plans = items(ids).map { item in
+            let (name, missing) = pattern.fileName(for: item.edited, extension: item.url.pathExtension)
+            let destination = item.url.deletingLastPathComponent().appendingPathComponent(name)
+            let status: RenamePlan.Status =
+                if name.isEmpty {
+                    .skipped("The tags give an empty name.")
+                } else if name == item.url.lastPathComponent {
+                    .unchanged
+                } else if FileRenamer.exists(destination) && !FileRenamer.isSameFile(item.url, destination) {
+                    .skipped("A file with this name already exists.")
+                } else {
+                    .rename
+                }
+            return RenamePlan(id: item.id, source: item.url, destination: destination, status: status, missing: missing)
+        }
+
+        // Default APFS volumes ignore case and Unicode normalization.
+        func key(_ url: URL) -> String { url.path.precomposedStringWithCanonicalMapping.lowercased() }
+        var counts: [String: Int] = [:]
+        for plan in plans where plan.status == .rename {
+            counts[key(plan.destination), default: 0] += 1
+        }
+        for index in plans.indices where plans[index].status == .rename && counts[key(plans[index].destination)]! > 1 {
+            plans[index].status = .skipped("Another selected file would get the same name.")
+        }
+        return plans
+    }
+
+    /// Renames files on disk right away (renames aren't staged like tag edits).
+    /// Undoable. Returns an error message for each file that couldn't be renamed.
+    @discardableResult
+    public func rename(_ plans: [RenamePlan], undoManager: UndoManager?) -> [String] {
+        var reversed: [RenamePlan] = []
+        var failures: [String] = []
+        for plan in plans where plan.status == .rename {
+            guard let item = itemsByID[plan.id], item.url == plan.source else { continue }
+            do {
+                try FileRenamer.move(plan.source, to: plan.destination)
+                itemsByURL[plan.source] = nil
+                item.url = plan.destination
+                itemsByURL[plan.destination] = item
+                reversed.append(RenamePlan(id: plan.id, source: plan.destination, destination: plan.source, status: .rename))
+            } catch {
+                failures.append(error.localizedDescription)
+            }
+        }
+        if let undoManager, !reversed.isEmpty {
+            undoManager.registerUndo(withTarget: self) { [weak undoManager] library in
+                MainActor.assumeIsolated {
+                    _ = library.rename(reversed, undoManager: undoManager)
+                }
+            }
+            undoManager.setActionName(reversed.count == 1 ? "Rename File" : "Rename Files")
+        }
+        return failures
     }
 
     // MARK: Background work

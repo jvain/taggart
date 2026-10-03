@@ -40,8 +40,8 @@ struct FileScannerTests {
 @MainActor
 @Suite("Library")
 struct LibraryTests {
-    /// Three files sharing one folder.
-    func loadedLibrary() async throws -> (Library, [URL]) {
+    /// Three files sharing one folder: basic.flac, basic.mp3, cover.flac.
+    func loadedLibrary() async throws -> (Library, ids: [AudioFileItem.ID], urls: [URL]) {
         let first = try fixture("basic.flac")
         let folder = first.deletingLastPathComponent()
         for name in ["basic.mp3", "cover.flac"] {
@@ -51,7 +51,7 @@ struct LibraryTests {
         let library = Library()
         let failures = await library.add([folder])
         #expect(failures.isEmpty)
-        return (library, library.items.map(\.url))
+        return (library, library.items.map(\.id), library.items.map(\.url))
     }
 
     func undoManager() -> UndoManager {
@@ -61,7 +61,7 @@ struct LibraryTests {
     }
 
     @Test func loadsFolderOnce() async throws {
-        let (library, urls) = try await loadedLibrary()
+        let (library, _, urls) = try await loadedLibrary()
         #expect(urls.map(\.lastPathComponent) == ["basic.flac", "basic.mp3", "cover.flac"])
         await library.add(urls)
         #expect(library.items.count == 3)
@@ -69,8 +69,8 @@ struct LibraryTests {
     }
 
     @Test func bulkEditUndoRedo() async throws {
-        let (library, urls) = try await loadedLibrary()
-        let all = Set(urls)
+        let (library, ids, _) = try await loadedLibrary()
+        let all = Set(ids)
         let undo = undoManager()
         #expect(library.fieldState(.artist, for: all) == .mixed)
 
@@ -90,32 +90,32 @@ struct LibraryTests {
     }
 
     @Test func coverAppliesToSelectionOnly() async throws {
-        let (library, urls) = try await loadedLibrary()
+        let (library, ids, _) = try await loadedLibrary()
         let blue = try newArtwork()
-        let selection: Set = [urls[0], urls[1]]
+        let selection: Set = [ids[0], ids[1]]
         library.apply(.setFrontCover(blue), to: selection, undoManager: nil)
         #expect(library.artworkState(for: selection) == .uniform(blue))
-        #expect(library.item(urls[2])?.isDirty == false)
+        #expect(library.item(ids[2])?.isDirty == false)
         #expect(library.thumbnails[blue.digest] != nil)
     }
 
     @Test func findsTheFileHoldingTheShownArtwork() async throws {
-        let (library, urls) = try await loadedLibrary()
+        let (library, ids, _) = try await loadedLibrary()
         // Only cover.flac has artwork; selecting all must still find it there.
-        let source = try #require(library.primaryArtwork(in: Set(urls)))
+        let source = try #require(library.primaryArtwork(in: Set(ids)))
         #expect(source.url.lastPathComponent == "cover.flac")
         #expect(source.artwork.type == .frontCover)
         let data = try TagIO.data(of: source.artwork, in: source.url)
         #expect(ArtworkImage.mimeType(of: data) == "image/png")
-        #expect(library.primaryArtwork(in: [urls[0]]) == nil)
+        #expect(library.primaryArtwork(in: [ids[0]]) == nil)
     }
 
     @Test func savesAndClearsUndo() async throws {
-        let (library, urls) = try await loadedLibrary()
+        let (library, ids, urls) = try await loadedLibrary()
         let undo = undoManager()
         undo.beginUndoGrouping()
-        library.apply(.setField(.album, "Saved Album"), to: Set(urls), undoManager: undo)
-        library.apply(.setFrontCover(try newArtwork()), to: [urls[1]], undoManager: undo)
+        library.apply(.setField(.album, "Saved Album"), to: Set(ids), undoManager: undo)
+        library.apply(.setFrontCover(try newArtwork()), to: [ids[1]], undoManager: undo)
         undo.endUndoGrouping()
 
         let failures = await library.save(undoManager: undo)
@@ -129,31 +129,149 @@ struct LibraryTests {
     }
 
     @Test func saveFailureKeepsEdits() async throws {
-        let (library, urls) = try await loadedLibrary()
-        library.apply(.setField(.title, "X"), to: [urls[0]], undoManager: nil)
+        let (library, ids, urls) = try await loadedLibrary()
+        library.apply(.setField(.title, "X"), to: [ids[0]], undoManager: nil)
         try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSinceNow: 60)], ofItemAtPath: urls[0].path)
 
         let failures = await library.save(undoManager: nil)
         #expect(failures.count == 1)
-        let item = try #require(library.item(urls[0]))
+        let item = try #require(library.item(ids[0]))
         #expect(item.isDirty)
         #expect(item.error != nil)
     }
 
     @Test func revertReloadsAndIsUndoable() async throws {
-        let (library, urls) = try await loadedLibrary()
+        let (library, ids, _) = try await loadedLibrary()
         let undo = undoManager()
         undo.beginUndoGrouping()
-        library.apply(.setField(.title, "Edited"), to: [urls[0]], undoManager: undo)
+        library.apply(.setField(.title, "Edited"), to: [ids[0]], undoManager: undo)
         undo.endUndoGrouping()
 
         undo.beginUndoGrouping()
-        await library.revert([urls[0]], undoManager: undo)
+        await library.revert([ids[0]], undoManager: undo)
         undo.endUndoGrouping()
-        #expect(library.item(urls[0])?.title == "Flac Title")
-        #expect(library.item(urls[0])?.isDirty == false)
+        #expect(library.item(ids[0])?.title == "Flac Title")
+        #expect(library.item(ids[0])?.isDirty == false)
 
         undo.undo()
-        #expect(library.item(urls[0])?.title == "Edited")
+        #expect(library.item(ids[0])?.title == "Edited")
+    }
+
+    @Test func renamesFilesAndUndoes() async throws {
+        let (library, ids, urls) = try await loadedLibrary()
+        let folder = urls[0].deletingLastPathComponent()
+        let undo = undoManager()
+        let plans = library.planRename(Set(ids), pattern: RenamePattern("%track% - %title%"))
+        #expect(plans.map(\.destination.lastPathComponent) == ["03 - Flac Title.flac", "05 - Mp3 Title.mp3", "Covered.flac"])
+        #expect(plans.map(\.status) == [.rename, .rename, .rename])
+        #expect(plans[2].missing == [.trackNumber])
+
+        undo.beginUndoGrouping()
+        let failures = library.rename(plans, undoManager: undo)
+        undo.endUndoGrouping()
+        #expect(failures.isEmpty)
+        #expect(library.item(ids[0])?.fileName == "03 - Flac Title.flac")
+        #expect(library.item(at: folder.appendingPathComponent("05 - Mp3 Title.mp3"))?.id == ids[1])
+        #expect(try TagIO.read(folder.appendingPathComponent("03 - Flac Title.flac")).snapshot.value(of: .title) == "Flac Title")
+        #expect(try names(in: folder) == ["03 - Flac Title.flac", "05 - Mp3 Title.mp3", "Covered.flac"])
+
+        // Edits and saving follow the renamed file.
+        library.apply(.setField(.album, "After Rename"), to: [ids[0]], undoManager: nil)
+        #expect(await library.save(undoManager: nil).isEmpty)
+        #expect(try TagIO.read(folder.appendingPathComponent("03 - Flac Title.flac")).snapshot.value(of: .album) == "After Rename")
+
+        let undo2 = undoManager()
+        undo2.beginUndoGrouping()
+        library.rename(library.planRename([ids[1]], pattern: RenamePattern("%artist%")), undoManager: undo2)
+        undo2.endUndoGrouping()
+        #expect(undo2.undoActionName == "Rename File")
+        #expect(library.item(ids[1])?.fileName == "Mp3 Artist.mp3")
+        undo2.undo()
+        #expect(library.item(ids[1])?.fileName == "05 - Mp3 Title.mp3")
+        #expect(try names(in: folder).contains("05 - Mp3 Title.mp3"))
+        undo2.redo()
+        #expect(library.item(ids[1])?.fileName == "Mp3 Artist.mp3")
+    }
+
+    @Test func skipsCollisions() async throws {
+        let (library, ids, urls) = try await loadedLibrary()
+        let folder = urls[0].deletingLastPathComponent()
+        library.apply(.setField(.title, "Same"), to: [ids[0], ids[2]], undoManager: nil)
+        try Data().write(to: folder.appendingPathComponent("Mp3 Title.mp3"))
+
+        let plans = library.planRename(Set(ids), pattern: RenamePattern("%title%"))
+        #expect(plans[0].status == .skipped("Another selected file would get the same name."))
+        #expect(plans[1].status == .skipped("A file with this name already exists."))
+        #expect(plans[2].status == plans[0].status)
+        #expect(library.rename(plans, undoManager: nil).isEmpty)
+        #expect(try names(in: folder) == ["basic.flac", "basic.mp3", "cover.flac", "Mp3 Title.mp3"])
+    }
+
+    @Test func renamesCaseOnly() async throws {
+        let (library, ids, urls) = try await loadedLibrary()
+        library.apply(.setField(.title, "BASIC"), to: [ids[0]], undoManager: nil)
+        let plans = library.planRename([ids[0]], pattern: RenamePattern("%title%"))
+        #expect(plans.first?.status == .rename)
+        #expect(library.rename(plans, undoManager: nil).isEmpty)
+        #expect(try names(in: urls[0].deletingLastPathComponent()).contains("BASIC.flac"))
+    }
+
+    @Test func unchangedNamesAreLeftAlone() async throws {
+        let (library, ids, _) = try await loadedLibrary()
+        library.apply(.setField(.title, "basic"), to: [ids[0]], undoManager: nil)
+        let plans = library.planRename([ids[0]], pattern: RenamePattern("%title%"))
+        #expect(plans.first?.status == .unchanged)
+    }
+
+    private func names(in folder: URL) throws -> [String] {
+        try FileManager.default.contentsOfDirectory(atPath: folder.path)
+            .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+    }
+}
+
+@Suite("Rename patterns")
+struct RenamePatternTests {
+    let tags = TagSnapshot(fields: [
+        "TITLE": ["Part 1: Intro / Reprise"],
+        "ARTIST": ["A", "B"],
+        "ALBUM": ["Album"],
+        "TRACKNUMBER": ["7"],
+        "TRACKTOTAL": ["12"],
+        "DATE": ["2001-05-03"],
+    ])
+
+    func name(_ pattern: String) -> String {
+        RenamePattern(pattern).fileName(for: tags, extension: "flac").name
+    }
+
+    @Test func expandsPlaceholders() {
+        #expect(name("%track% - %title%") == "07 - Part 1 - Intro - Reprise.flac")
+        #expect(name("%ARTIST% - %Album% (%year%)") == "A, B - Album (2001).flac")
+        #expect(name("%track% of %tracktotal%") == "07 of 12.flac")
+        #expect(name("100% %title") == "100% %title.flac")
+    }
+
+    @Test func reportsMissingFields() {
+        let result = RenamePattern("%disc%-%track% %genre%").fileName(for: tags, extension: "mp3")
+        #expect(result.name == "07.mp3")
+        // Without missing fields, the name is kept as is.
+        #expect(RenamePattern("-%track%-").fileName(for: tags, extension: "mp3").name == "-07-.mp3")
+        #expect(result.missing == [.discNumber, .genre])
+        #expect(RenamePattern("%genre%").fileName(for: tags, extension: "mp3").name == "")
+    }
+
+    @Test func cleansNames() {
+        #expect(name("...%album%.  ") == "Album.flac")
+        #expect(RenamePattern.clean("Line\nbreak\u{7}") == "Line break")
+        let long = RenamePattern(String(repeating: "x", count: 300)).fileName(for: tags, extension: "flac").name
+        #expect(long.utf8.count == 255)
+        #expect(long.hasSuffix("x.flac"))
+    }
+
+    @Test func rejectsBadPatterns() {
+        #expect(RenamePattern("%nope%").error == "Unknown placeholder “%nope%”.")
+        #expect(RenamePattern("%artist%/%title%").error != nil)
+        #expect(RenamePattern("  ").error != nil)
+        #expect(RenamePattern("%track% - %title%").error == nil)
     }
 }

@@ -7,7 +7,6 @@ struct TagInspector: View {
 
     var body: some View {
         let ids = controller.selection
-        let library = controller.library
         if ids.isEmpty {
             ContentUnavailableView(
                 "No Selection",
@@ -24,20 +23,20 @@ struct TagInspector: View {
                         .truncationMode(.middle)
                 }
                 Section {
-                    field(.title, ids)
-                    field(.artist, ids)
-                    field(.album, ids)
-                    field(.albumArtist, ids)
-                    LabeledContent("Track") {
+                    row(.title, ids)
+                    row(.artist, ids)
+                    row(.album, ids)
+                    row(.albumArtist, ids)
+                    labeled("Track") {
                         numberPair(.trackNumber, .trackTotal, ids)
                     }
-                    LabeledContent("Disc") {
+                    labeled("Disc") {
                         numberPair(.discNumber, .discTotal, ids)
                     }
-                    field(.date, ids)
-                    field(.genre, ids)
-                    field(.composer, ids)
-                    field(.comment, ids, multiline: true)
+                    row(.date, ids)
+                    row(.genre, ids)
+                    row(.composer, ids)
+                    row(.comment, ids, multiline: true)
                 } footer: {
                     Text("Separate multiple artists, genres or composers with “;”.")
                         .font(.caption)
@@ -45,18 +44,35 @@ struct TagInspector: View {
                 }
             }
             .formStyle(.grouped)
-            .disabled(library.isSaving)
+            .disabled(controller.library.isSaving)
         }
     }
 
-    private func header(for ids: Set<URL>) -> String {
-        if ids.count == 1, let url = ids.first {
-            return url.lastPathComponent
+    private func header(for ids: Set<AudioFileItem.ID>) -> String {
+        if ids.count == 1, let id = ids.first, let item = controller.library.item(id) {
+            return item.fileName
         }
         return "\(ids.count) files selected"
     }
 
-    private func field(_ field: LogicalField, _ ids: Set<URL>, multiline: Bool = false) -> some View {
+    private func row(_ field: LogicalField, _ ids: Set<AudioFileItem.ID>, multiline: Bool = false) -> some View {
+        labeled(field.label) {
+            editor(field, ids, multiline: multiline)
+        }
+    }
+
+    /// A label in a fixed-width column, so every field starts at the same place
+    /// and fills the rest of the row.
+    private func labeled(_ label: String, @ViewBuilder content: () -> some View) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(label)
+                .frame(width: 84, alignment: .leading)
+            content()
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private func editor(_ field: LogicalField, _ ids: Set<AudioFileItem.ID>, multiline: Bool = false) -> some View {
         FieldEditor(
             field: field,
             ids: ids,
@@ -67,15 +83,15 @@ struct TagInspector: View {
         }
     }
 
-    private func numberPair(_ number: LogicalField, _ total: LogicalField, _ ids: Set<URL>) -> some View {
+    private func numberPair(_ number: LogicalField, _ total: LogicalField, _ ids: Set<AudioFileItem.ID>) -> some View {
         HStack(spacing: 6) {
-            field(number, ids)
-                .labelsHidden()
-                .frame(width: 64)
-            Text("of").foregroundStyle(.secondary)
-            field(total, ids)
-                .labelsHidden()
-                .frame(width: 64)
+            editor(number, ids)
+                .frame(minWidth: 56, maxWidth: 80)
+            Text("of")
+                .foregroundStyle(.secondary)
+                .fixedSize()
+            editor(total, ids)
+                .frame(minWidth: 56, maxWidth: 80)
         }
     }
 }
@@ -85,19 +101,22 @@ struct TagInspector: View {
 /// was selected when editing began, on Return or when focus leaves the field.
 private struct FieldEditor: View {
     let field: LogicalField
-    let ids: Set<URL>
+    let ids: Set<AudioFileItem.ID>
     let state: FieldState
     let multiline: Bool
-    let commit: (String, Set<URL>) -> Void
+    let commit: (String, Set<AudioFileItem.ID>) -> Void
 
     @ViewState private var text = ""
-    @ViewState private var editing: (ids: Set<URL>, state: FieldState)?
+    @ViewState private var editing: (ids: Set<AudioFileItem.ID>, state: FieldState)?
     @FocusState private var isFocused: Bool
 
     var body: some View {
         HStack(spacing: 4) {
             TextField(field.label, text: $text, prompt: prompt, axis: multiline ? .vertical : .horizontal)
-                .lineLimit(multiline ? 1...5 : 1...1)
+                .textFieldStyle(.roundedBorder)
+                .multilineTextAlignment(.leading)
+                .labelsHidden()
+                .lineLimit(multiline ? 2...5 : 1...1)
                 .focused($isFocused)
                 .onSubmit(commitIfChanged)
                 .onChange(of: isFocused) {
@@ -118,25 +137,30 @@ private struct FieldEditor: View {
                         syncText(force: true)
                     }
                 }
-            if state != .uniform("") {
-                Button("Clear", systemImage: "xmark.circle.fill") {
-                    let targets = editing?.ids ?? ids
-                    text = ""
-                    commit("", targets)
-                    // Leaving the field must not re-commit text typed before clearing.
-                    editing = (targets, .uniform(""))
-                    isFocused = false
-                }
-                .labelStyle(.iconOnly)
-                .buttonStyle(.borderless)
-                .foregroundStyle(.tertiary)
-                .help(ids.count > 1 ? "Clear \(field.label) in all selected files" : "Clear \(field.label)")
+                .help(state == .mixed ? "The selected files have different values. Type to replace them all." : "")
+            // Always laid out, so fields line up whether or not it's shown.
+            Button("Clear", systemImage: "xmark.circle.fill") {
+                let targets = editing?.ids ?? ids
+                text = ""
+                commit("", targets)
+                // Leaving the field must not re-commit text typed before clearing.
+                editing = (targets, .uniform(""))
+                isFocused = false
             }
+            .labelStyle(.iconOnly)
+            .buttonStyle(.borderless)
+            .foregroundStyle(.tertiary)
+            .help(ids.count > 1 ? "Clear \(field.label) in all selected files" : "Clear \(field.label)")
+            .opacity(state == .uniform("") ? 0 : 1)
+            .disabled(state == .uniform(""))
         }
     }
 
-    private var prompt: Text? {
-        state == .mixed ? Text("Multiple values") : nil
+    private var prompt: Text {
+        // An empty prompt; otherwise the field would repeat its label.
+        guard state == .mixed else { return Text(verbatim: "") }
+        // Number fields are too narrow for the long form.
+        return Text(field.isNumeric ? "Mixed" : "Multiple values")
     }
 
     private func syncText(force: Bool = false) {
