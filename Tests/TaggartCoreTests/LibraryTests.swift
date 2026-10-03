@@ -21,6 +21,47 @@ struct FieldStateTests {
     }
 }
 
+@Suite("Genres")
+struct GenreTests {
+    func completions(_ text: String, _ preferred: [String] = []) -> [String] {
+        Genres.suggestions(for: text, preferring: preferred).map(\.completion)
+    }
+
+    @Test func hasTheStandardList() {
+        #expect(Genres.standard.count >= 148)
+        #expect(Genres.standard.first == "Blues")
+        #expect(Genres.standard.contains("Synthpop"))
+    }
+
+    @Test func suggestsMatchingGenres() {
+        // Names starting with the typed text come before names containing it.
+        let rock = completions("roc")
+        #expect(rock.first == "Rock")
+        #expect(rock.firstIndex(of: "Rock & Roll")! < rock.firstIndex(of: "Classic Rock")!)
+        // Case and accents are ignored.
+        #expect(completions("JAZZ").first == "Jazz")
+        // Genres from the loaded files come first, even if not standard.
+        #expect(completions("ro", ["Rocksteady Dub"]).first == "Rocksteady Dub")
+        #expect(completions("zzzz").isEmpty)
+        #expect(completions("r").count == 12)
+    }
+
+    @Test func completesTheLastOfSeveralGenres() {
+        let results = completions("Ambient; Roc")
+        #expect(results.first == "Ambient; Rock")
+        // Genres already in the field aren't offered again.
+        #expect(!completions("Rock; Ro").contains("Rock; Rock"))
+    }
+
+    @Test func suggestsLoadedGenresBeforeTyping() {
+        #expect(completions("", ["Ambient", "Jazz"]) == ["Ambient", "Jazz"])
+        #expect(completions("Ambient; ", ["Ambient", "Jazz"]) == ["Ambient; Jazz"])
+        #expect(completions("").isEmpty)
+        // The exact genre already typed isn't suggested.
+        #expect(!completions("Jazz").contains("Jazz"))
+    }
+}
+
 @Suite("File scanning")
 struct FileScannerTests {
     @Test func findsAudioFilesRecursively() throws {
@@ -126,6 +167,25 @@ struct LibraryTests {
             #expect(try TagIO.read(url).snapshot.value(of: .album) == "Saved Album")
         }
         #expect(try TagIO.read(urls[1]).snapshot.artwork.count == 1)
+    }
+
+    @Test func listsGenresInUseByFrequency() async throws {
+        let (library, ids, _) = try await loadedLibrary()
+        #expect(library.genres == ["Ambient"])
+        library.apply(.setField(.genre, "Jazz; Ambient"), to: [ids[1], ids[2]], undoManager: nil)
+        #expect(library.genres == ["Ambient", "Jazz"])
+    }
+
+    @Test func savesKeepingModificationDates() async throws {
+        let (library, ids, urls) = try await loadedLibrary()
+        let old = Date(timeIntervalSince1970: 1_000_000_000)
+        try FileManager.default.setAttributes([.modificationDate: old], ofItemAtPath: urls[0].path)
+        await library.revert([ids[0]], undoManager: nil)
+        library.apply(.setField(.title, "Kept Date"), to: [ids[0]], undoManager: nil)
+        library.keepModificationDates = true
+        #expect(await library.save(undoManager: nil).isEmpty)
+        #expect(TagIO.modificationDate(of: urls[0]) == old)
+        #expect(library.item(ids[0])?.modificationDate == old)
     }
 
     @Test func saveFailureKeepsEdits() async throws {

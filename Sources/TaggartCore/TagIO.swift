@@ -62,18 +62,21 @@ public enum TagIO {
     ///
     /// The tags are written to a clone of the file (instant on APFS), which then
     /// replaces the original, so a failure part-way can't damage the original.
+    /// With `keepModificationDate`, the file keeps its modification date.
     public static func write(
         _ edited: TagSnapshot,
         original: TagSnapshot,
         to url: URL,
         expectedModificationDate: Date?,
-        id3v2Version: ID3v2WriteVersion = .keep
+        id3v2Version: ID3v2WriteVersion = .keep,
+        keepModificationDate: Bool = false
     ) throws {
         let fieldsChanged = edited.fields != original.fields
         let artworkChanged = edited.artwork != original.artwork
         guard fieldsChanged || artworkChanged else { return }
 
-        if let expectedModificationDate, modificationDate(of: url) != expectedModificationDate {
+        let originalModificationDate = modificationDate(of: url)
+        if let expectedModificationDate, originalModificationDate != expectedModificationDate {
             throw TagIOError.modifiedOnDisk(url)
         }
 
@@ -95,6 +98,10 @@ public enum TagIO {
             originalURL: url,
             id3v2Version: id3v2Version
         )
+        if keepModificationDate, let originalModificationDate {
+            // Set on the copy, so the file never appears with a new date.
+            try FileManager.default.setAttributes([.modificationDate: originalModificationDate], ofItemAtPath: temporaryURL.path)
+        }
         _ = try FileManager.default.replaceItemAt(url, withItemAt: temporaryURL)
         replaced = true
     }

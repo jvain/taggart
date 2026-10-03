@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import TaggartCore
 
@@ -73,14 +74,23 @@ struct TagInspector: View {
     }
 
     private func editor(_ field: LogicalField, _ ids: Set<AudioFileItem.ID>, multiline: Bool = false) -> some View {
-        FieldEditor(
+        var suggest: ((String) -> [Genres.Suggestion])?
+        if field == .genre {
+            suggest = { text in genreSuggestions(for: text) }
+        }
+        return FieldEditor(
             field: field,
             ids: ids,
             state: controller.library.fieldState(field, for: ids),
-            multiline: multiline
+            multiline: multiline,
+            suggest: suggest
         ) { value, targets in
             controller.apply(.setField(field, value), to: targets)
         }
+    }
+
+    private func genreSuggestions(for text: String) -> [Genres.Suggestion] {
+        Genres.suggestions(for: text, preferring: controller.library.genres)
     }
 
     private func numberPair(_ number: LogicalField, _ total: LogicalField, _ ids: Set<AudioFileItem.ID>) -> some View {
@@ -104,9 +114,13 @@ private struct FieldEditor: View {
     let ids: Set<AudioFileItem.ID>
     let state: FieldState
     let multiline: Bool
+    /// Completions for the text being typed, if this field offers any.
+    var suggest: ((String) -> [Genres.Suggestion])?
     let commit: (String, Set<AudioFileItem.ID>) -> Void
 
     @ViewState private var text = ""
+    /// The value last shown from the files, as opposed to typed by the user.
+    @ViewState private var syncedText = ""
     @ViewState private var editing: (ids: Set<AudioFileItem.ID>, state: FieldState)?
     @FocusState private var isFocused: Bool
 
@@ -117,6 +131,7 @@ private struct FieldEditor: View {
                 .multilineTextAlignment(.leading)
                 .labelsHidden()
                 .lineLimit(multiline ? 2...5 : 1...1)
+                .modifier(Suggestions(items: isFocused ? suggest?(text) ?? [] : []))
                 .focused($isFocused)
                 .onSubmit(commitIfChanged)
                 .onChange(of: isFocused) {
@@ -137,7 +152,8 @@ private struct FieldEditor: View {
                         syncText(force: true)
                     }
                 }
-                .help(state == .mixed ? "The selected files have different values. Type to replace them all." : "")
+                .onChange(of: text) { rejectDisallowedInput() }
+                .help(helpText)
             // Always laid out, so fields line up whether or not it's shown.
             Button("Clear", systemImage: "xmark.circle.fill") {
                 let targets = editing?.ids ?? ids
@@ -166,9 +182,34 @@ private struct FieldEditor: View {
     private func syncText(force: Bool = false) {
         guard force || !isFocused else { return }
         if case let .uniform(value) = state {
-            text = value
+            syncedText = value
         } else {
-            text = ""
+            syncedText = ""
+        }
+        text = syncedText
+    }
+
+    /// Drops characters a number field can't hold, with a beep, as an AppKit
+    /// number field would. Only typed text is checked: values shown from the
+    /// files (even odd ones like "A1") stay as they are until edited.
+    private func rejectDisallowedInput() {
+        guard isFocused, text != syncedText else { return }
+        let allowed = field.allowedInput(text)
+        if allowed != text {
+            NSSound.beep()
+            text = allowed
+        }
+    }
+
+    private var helpText: String {
+        if state == .mixed {
+            return "The selected files have different values. Type to replace them all."
+        }
+        switch field {
+        case .trackNumber: return "A number. Type e.g. 3/12 to set the track total too."
+        case .discNumber: return "A number. Type e.g. 1/2 to set the disc total too."
+        case .trackTotal, .discTotal: return "A number."
+        default: return ""
         }
     }
 
@@ -184,5 +225,25 @@ private struct FieldEditor: View {
         guard !unchanged, !targets.isEmpty else { return }
         commit(text, targets)
         editing = (targets, .uniform(trimmed))
+    }
+}
+
+/// A list of completions under a text field while typing (macOS 15 and later).
+private struct Suggestions: ViewModifier {
+    let items: [Genres.Suggestion]
+
+    func body(content: Content) -> some View {
+        // Only the OS version decides the branch: switching on `items` would
+        // replace the text field and end editing.
+        if #available(macOS 15, *) {
+            content.textInputSuggestions {
+                ForEach(items) { item in
+                    Text(item.genre)
+                        .textInputCompletion(item.completion)
+                }
+            }
+        } else {
+            content
+        }
     }
 }

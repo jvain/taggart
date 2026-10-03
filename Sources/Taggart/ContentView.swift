@@ -61,6 +61,7 @@ struct ContentView: View {
                 }
             }
             .navigationSubtitle(subtitle)
+            .background(DocumentEditedMarker(isEdited: library.hasUnsavedChanges))
             .alert(
                 controller.alert?.title ?? "",
                 isPresented: Binding(get: { controller.alert != nil }, set: { if !$0 { controller.alert = nil } }),
@@ -139,5 +140,31 @@ private struct StatusBar: View {
             parts.append("\(modified) modified")
         }
         return parts.joined(separator: " · ")
+    }
+}
+
+/// Shows the standard unsaved-changes dot in the window's close button (and
+/// beside the window's name in the Window menu).
+private struct DocumentEditedMarker: NSViewRepresentable {
+    let isEdited: Bool
+
+    func makeNSView(context: Context) -> MarkerView {
+        MarkerView()
+    }
+
+    func updateNSView(_ view: MarkerView, context: Context) {
+        view.isEdited = isEdited
+    }
+
+    final class MarkerView: NSView {
+        var isEdited = false {
+            didSet { window?.isDocumentEdited = isEdited }
+        }
+
+        // The view joins the window after the first update.
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            window?.isDocumentEdited = isEdited
+        }
     }
 }

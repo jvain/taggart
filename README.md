@@ -12,7 +12,10 @@ FLAC and MP3 files, including many files at once.
   Artist, Album, Album Artist, Track/Disc number and total, Year, Genre,
   Composer or Comment. A field where the files differ shows *Multiple values*
   and is left alone unless you type in it. Separate multiple artists, genres or
-  composers with `;`.
+  composers with `;`. The Genre field suggests genres as you type: those
+  already in the loaded files first, then the standard ID3 genre list (built
+  into TagLib). Track and Disc take numbers only; typing `3/12` sets the
+  total too.
 - **Cover art:** drop an image on the artwork well, paste it (⌘V) or choose a
   file. Images dragged from a web browser, and copied image addresses, are
   downloaded. The new cover replaces the front cover of every selected file and keeps
@@ -26,7 +29,8 @@ FLAC and MP3 files, including many files at once.
   other, are skipped, and files missing a tag the pattern uses are flagged.
   Renames happen right away and can be undone with ⌘Z.
 - **Undo/redo** (⌘Z / ⌘⇧Z) for every edit until you save. Edits stay pending
-  (marked with a dot) until you save with ⌘S. **Revert Selected** re-reads
+  (marked with a dot, in the list and in the window's close button) until you
+  save with ⌘S. **Revert Selected** re-reads
   files from disk.
 - **Safe saving:** each file is written to an instant APFS clone, which then
   replaces the original, so a failed save can't damage a file. Taggart won't
@@ -34,7 +38,8 @@ FLAC and MP3 files, including many files at once.
 - **Leaves everything else alone:** tags without UI (MusicBrainz IDs,
   ReplayGain, …), the audio data, and an existing ID3v1 tag are preserved.
   Taggart never adds an ID3v1 tag. MP3 files keep their ID3v2 version unless
-  you choose ID3v2.3 or 2.4 in Settings.
+  you choose ID3v2.3 or 2.4 in Settings. Settings can also keep files'
+  modification dates when saving.
 
 ## Building
 

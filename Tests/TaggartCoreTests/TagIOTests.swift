@@ -145,6 +145,29 @@ struct WritingTests {
         #expect(loaded.snapshot.fields["TRACKNUMBER"] == ["5/10"])
     }
 
+    @Test func numberFieldsAcceptOnlyNumbers() {
+        #expect(LogicalField.trackNumber.allowedInput("12") == "12")
+        #expect(LogicalField.trackNumber.allowedInput("A1x2") == "12")
+        #expect(LogicalField.trackNumber.allowedInput("3/12") == "3/12")
+        #expect(LogicalField.trackNumber.allowedInput("3/1/2") == "3/12")
+        #expect(LogicalField.discNumber.allowedInput(" 1 / 2 ") == "1/2")
+        #expect(LogicalField.trackTotal.allowedInput("3/12") == "312")
+        #expect(LogicalField.trackTotal.allowedInput("１２") == "")
+        #expect(LogicalField.title.allowedInput("Track 1/2") == "Track 1/2")
+    }
+
+    @Test func typingNumberAndTotalSetsBoth() {
+        var flac = TagSnapshot(fields: ["TRACKNUMBER": ["1"], "TRACKTOTAL": ["9"]])
+        flac.set(.trackNumber, to: "3/12", format: .flac)
+        #expect(flac.fields == ["TRACKNUMBER": ["3"], "TRACKTOTAL": ["12"]])
+        flac.set(.trackNumber, to: "4/", format: .flac)
+        #expect(flac.fields == ["TRACKNUMBER": ["4"], "TRACKTOTAL": ["12"]])
+
+        var mp3 = TagSnapshot(fields: ["DISCNUMBER": ["1"]])
+        mp3.set(.discNumber, to: "2/3", format: .mp3)
+        #expect(mp3.fields == ["DISCNUMBER": ["2/3"]])
+    }
+
     @Test func flacTrackNumberWithEmbeddedTotalIsSplit() throws {
         var tags = TagSnapshot(fields: ["TRACKNUMBER": ["4/8"]])
         tags.set(.trackNumber, to: "5", format: .flac)
@@ -158,6 +181,26 @@ struct WritingTests {
         #expect(tags.fields == ["TRACKNUMBER": ["5"], "TOTALTRACKS": ["8"]])
         tags.set(.trackTotal, to: "9", format: .flac)
         #expect(tags.fields == ["TRACKNUMBER": ["5"], "TRACKTOTAL": ["9"]])
+    }
+
+    @Test(arguments: [true, false])
+    func keepsModificationDateWhenAsked(_ keep: Bool) throws {
+        let url = try fixture("basic.mp3")
+        let old = Date(timeIntervalSince1970: 1_000_000_000.25)
+        try FileManager.default.setAttributes([.modificationDate: old], ofItemAtPath: url.path)
+        let loaded = try TagIO.read(url)
+        var edited = loaded.snapshot
+        edited.set(.title, to: "New", format: .mp3)
+        try TagIO.write(edited, original: loaded.snapshot, to: url,
+                        expectedModificationDate: loaded.modificationDate, keepModificationDate: keep)
+
+        let date = try #require(TagIO.modificationDate(of: url))
+        if keep {
+            #expect(abs(date.timeIntervalSince(old)) < 0.001)
+        } else {
+            #expect(date.timeIntervalSinceNow > -60)
+        }
+        #expect(try TagIO.read(url).snapshot.value(of: .title) == "New")
     }
 
     @Test func unchangedSnapshotDoesNotTouchFile() throws {

@@ -75,6 +75,11 @@ typedef struct {
     size_t count;
 } tb_picture_list;
 
+typedef struct {
+    char **items;
+    size_t count;
+} tb_string_list;
+
 /// Opens a file for reading and writing tags. Returns NULL on failure, with a
 /// message in `error` (which may be NULL).
 tb_file *tb_open(const char *path, char *error, size_t error_size);
@@ -95,6 +100,11 @@ tb_picture_list tb_get_pictures(const tb_file *file);
 /// Replaces all embedded pictures.
 bool tb_set_pictures(tb_file *file, const tb_picture *items, size_t count);
 void tb_picture_list_free(tb_picture_list list);
+
+/// The standard ID3v1 genre names, including Winamp's extensions, in genre
+/// number order. Free with tb_string_list_free.
+tb_string_list tb_id3v1_genres(void);
+void tb_string_list_free(tb_string_list list);
 
 /// Writes pending changes to disk. For MP3 files only the ID3v2 tag and an
 /// already existing ID3v1/APE tag are written; ID3v1 is never created.

@@ -21,12 +21,6 @@ Ideas for future work, roughly in order of usefulness.
 
 ## Smaller improvements
 
-- [ ] **Genre suggestions.** Autocomplete in the Genre field from the standard
-  ID3 genre list plus the genres in the loaded files.
-- [ ] **Keep files' modification dates when saving** (optional), so retagging
-  doesn't reorder folders sorted by date.
-- [ ] **Unsaved-changes marker** on the window's close button.
-- [ ] **Check that Track/Disc numbers are numbers.** They accept any text.
 - [ ] **Remove folders left empty** after renaming files into new folders
   (optional; currently the old folders stay).
 - [ ] **Plain `http://` cover downloads from other hosts** may be blocked by
@@ -40,6 +34,13 @@ Ideas for future work, roughly in order of usefulness.
 
 ## Done
 
+- [x] **Unsaved-changes marker** in the window's close button.
+- [x] **Track/Disc numbers are numbers:** other characters are refused with a
+  beep; `3/12` sets the total too. Odd values already in files are kept until
+  edited.
+- [x] **Genre suggestions:** the Genre field suggests genres from the loaded
+  files, then TagLib's standard ID3 list (macOS 15 and later).
+- [x] **Keep files' modification dates when saving:** an option in Settings.
 - [x] **Rename into folders:** `/` in the rename pattern creates folders, in
   each file's folder or a chosen one; undo removes the folders it created.
 - [x] **Placeholder buttons insert at the cursor** in the rename dialog

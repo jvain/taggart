@@ -66,6 +66,8 @@ public final class Library {
     /// Progress of the current load, as (done, total).
     public private(set) var loadProgress = (done: 0, total: 0)
     public var id3v2Version: ID3v2WriteVersion = .keep
+    /// Whether saving keeps the files' modification dates.
+    public var keepModificationDates = false
     public let thumbnails = ThumbnailCache()
 
     @ObservationIgnored private var itemsByID: [AudioFileItem.ID: AudioFileItem] = [:]
@@ -84,6 +86,18 @@ public final class Library {
     }
 
     public var dirtyItems: [AudioFileItem] { items.filter(\.isDirty) }
+
+    /// The genres used in the loaded files, most used first.
+    public var genres: [String] {
+        var counts: [String: Int] = [:]
+        for item in items {
+            for genre in item.edited.fields["GENRE"] ?? [] where !genre.isEmpty {
+                counts[genre, default: 0] += 1
+            }
+        }
+        return counts.sorted { $0.value != $1.value ? $0.value > $1.value : $0.key.localizedStandardCompare($1.key) == .orderedAscending }
+            .map(\.key)
+    }
     public var hasUnsavedChanges: Bool { items.contains(where: \.isDirty) }
 
     // MARK: Loading
@@ -216,12 +230,12 @@ public final class Library {
         isSaving = true
         defer { isSaving = false }
 
-        let version = id3v2Version
+        let options = SaveOptions(id3v2Version: id3v2Version, keepModificationDate: keepModificationDates)
         let thumbnails = thumbnails
         let results = await withTaskGroup(of: (Int, Result<LoadedFile, Error>).self) { group in
             for (index, job) in jobs.enumerated() {
                 group.addTask {
-                    (index, await Self.perform(job, id3v2Version: version, thumbnails: thumbnails))
+                    (index, await Self.perform(job, options: options, thumbnails: thumbnails))
                 }
             }
             var results = [Result<LoadedFile, Error>?](repeating: nil, count: jobs.count)
@@ -255,10 +269,15 @@ public final class Library {
         var modificationDate: Date?
     }
 
+    private struct SaveOptions: Sendable {
+        var id3v2Version: ID3v2WriteVersion
+        var keepModificationDate: Bool
+    }
+
     @concurrent
     private nonisolated static func perform(
         _ job: SaveJob,
-        id3v2Version: ID3v2WriteVersion,
+        options: SaveOptions,
         thumbnails: ThumbnailCache
     ) async -> Result<LoadedFile, Error> {
         Result {
@@ -267,7 +286,8 @@ public final class Library {
                 original: job.original,
                 to: job.url,
                 expectedModificationDate: job.modificationDate,
-                id3v2Version: id3v2Version
+                id3v2Version: options.id3v2Version,
+                keepModificationDate: options.keepModificationDate
             )
             return try TagIO.read(job.url, thumbnails: thumbnails)
         }

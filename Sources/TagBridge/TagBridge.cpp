@@ -7,6 +7,7 @@
 #include <string>
 
 #include <taglib/fileref.h>
+#include <taglib/id3v1genres.h>
 #include <taglib/flacfile.h>
 #include <taglib/flacproperties.h>
 #include <taglib/id3v2header.h>
@@ -246,6 +247,29 @@ void tb_picture_list_free(tb_picture_list list) {
         std::free(list.items[i].mime_type);
         std::free(list.items[i].description);
     }
+    std::free(list.items);
+}
+
+tb_string_list tb_id3v1_genres(void) {
+    tb_string_list list { nullptr, 0 };
+    try {
+        const TagLib::StringList genres = TagLib::ID3v1::genreList();
+        list.items = static_cast<char **>(std::calloc(genres.isEmpty() ? 1 : genres.size(), sizeof(char *)));
+        if(!list.items)
+            throw std::bad_alloc();
+        for(const auto &genre : genres)
+            list.items[list.count++] = copyString(genre);
+    }
+    catch(...) {
+        tb_string_list_free(list);
+        list = { nullptr, 0 };
+    }
+    return list;
+}
+
+void tb_string_list_free(tb_string_list list) {
+    for(size_t i = 0; i < list.count; ++i)
+        std::free(list.items[i]);
     std::free(list.items);
 }
 

@@ -81,6 +81,7 @@ final class AppController {
     @discardableResult
     func save() async -> Bool {
         library.id3v2Version = Preferences.id3v2Version
+        library.keepModificationDates = Preferences.keepModificationDates
         let failures = await library.save(undoManager: undoManager)
         if !failures.isEmpty {
             alert = AppAlert(
@@ -228,6 +229,11 @@ struct AppAlert: Identifiable {
 
 enum Preferences {
     static let id3v2VersionKey = "id3v2Version"
+    static let keepModificationDatesKey = "keepModificationDates"
+
+    static var keepModificationDates: Bool {
+        UserDefaults.standard.bool(forKey: keepModificationDatesKey)
+    }
 
     static var id3v2Version: ID3v2WriteVersion {
         ID3v2WriteVersion(rawValue: UserDefaults.standard.integer(forKey: id3v2VersionKey)) ?? .keep

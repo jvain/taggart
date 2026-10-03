@@ -50,6 +50,25 @@ public enum LogicalField: String, CaseIterable, Sendable, Identifiable {
         }
     }
 
+    /// What typing `text` into this field may produce: number fields keep only
+    /// the digits 0–9, and Track and Disc also one "/" ("3/12" sets the total
+    /// too). Other fields accept anything.
+    public func allowedInput(_ text: String) -> String {
+        guard isNumeric else { return text }
+        let allowsSlash = self == .trackNumber || self == .discNumber
+        var sawSlash = false
+        return String(text.filter { character in
+            if ("0"..."9").contains(character) {
+                return true
+            }
+            if character == "/" && allowsSlash && !sawSlash {
+                sawSlash = true
+                return true
+            }
+            return false
+        })
+    }
+
     var simpleKey: String? {
         switch self {
         case .title: "TITLE"
@@ -125,6 +144,15 @@ extension TagSnapshot {
     /// Sets a field. An empty value removes it.
     public mutating func set(_ field: LogicalField, to rawValue: String, format: AudioFormat) {
         let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        if field == .trackNumber || field == .discNumber, value.contains("/") {
+            // "3/12" sets the number and the total; "3/" just the number.
+            let (number, total) = Self.splitNumber(value)
+            set(field, to: number, format: format)
+            if !total.isEmpty {
+                set(field == .trackNumber ? .trackTotal : .discTotal, to: total, format: format)
+            }
+            return
+        }
         if let key = field.simpleKey {
             let values = field.allowsMultipleValues
                 ? value.split(separator: ";").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }

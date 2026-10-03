@@ -48,19 +48,29 @@ struct TaggartApp: App {
 
 struct SettingsView: View {
     @AppStorage(Preferences.id3v2VersionKey) private var id3v2Version = ID3v2WriteVersion.keep.rawValue
+    @AppStorage(Preferences.keepModificationDatesKey) private var keepModificationDates = false
 
     var body: some View {
         Form {
-            Picker("Write MP3 tags as:", selection: $id3v2Version) {
-                ForEach(ID3v2WriteVersion.allCases) { version in
-                    Text(version.label).tag(version.rawValue)
+            Section {
+                Picker("Write MP3 tags as:", selection: $id3v2Version) {
+                    ForEach(ID3v2WriteVersion.allCases) { version in
+                        Text(version.label).tag(version.rawValue)
+                    }
                 }
+                Text("ID3v2.3 is the most widely supported; ID3v2.4 supports UTF-8 and multiple values.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
-            Text("ID3v2.3 is the most widely supported; ID3v2.4 supports UTF-8 and multiple values.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            Section {
+                Toggle("Keep files' modification dates when saving", isOn: $keepModificationDates)
+                Text("Folders sorted by date stay in the same order after retagging. Backup and sync tools that look only at dates and sizes may then miss the changes.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .padding(20)
-        .frame(width: 460)
+        .frame(width: 480)
     }
 }
