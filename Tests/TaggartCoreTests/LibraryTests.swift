@@ -216,6 +216,12 @@ struct LibraryTests {
         #expect(try names(in: urls[0].deletingLastPathComponent()).contains("BASIC.flac"))
     }
 
+    @Test func explainsEmptyNames() async throws {
+        let (library, ids, _) = try await loadedLibrary()
+        let plans = library.planRename([ids[1]], pattern: RenamePattern("%genre%/%title%"))
+        #expect(plans.first?.status == .skipped("No Genre in this file's tags, which leaves a name empty."))
+    }
+
     @Test func unchangedNamesAreLeftAlone() async throws {
         let (library, ids, _) = try await loadedLibrary()
         library.apply(.setField(.title, "basic"), to: [ids[0]], undoManager: nil)
@@ -223,8 +229,43 @@ struct LibraryTests {
         #expect(plans.first?.status == .unchanged)
     }
 
+    @Test func renamesIntoFoldersAndUndoes() async throws {
+        let (library, ids, urls) = try await loadedLibrary()
+        let folder = urls[0].deletingLastPathComponent()
+        library.apply(.setField(.artist, "Band"), to: Set(ids), undoManager: nil)
+        library.apply(.setField(.album, "Record"), to: Set(ids), undoManager: nil)
+        let undo = undoManager()
+        let plans = library.planRename(Set(ids), pattern: RenamePattern("%artist%/%album%/%title%"))
+        #expect(plans.map(\.relativePath) == ["Band/Record/Flac Title.flac", "Band/Record/Mp3 Title.mp3", "Band/Record/Covered.flac"])
+
+        undo.beginUndoGrouping()
+        #expect(library.rename(plans, undoManager: undo).isEmpty)
+        undo.endUndoGrouping()
+        let record = folder.appendingPathComponent("Band/Record")
+        #expect(try names(in: record) == ["Covered.flac", "Flac Title.flac", "Mp3 Title.mp3"])
+        #expect(try names(in: folder) == ["Band"])
+        #expect(library.item(ids[1])?.url.path == record.appendingPathComponent("Mp3 Title.mp3").path)
+
+        // Undo moves the files back and removes the folders it made.
+        undo.undo()
+        #expect(try names(in: folder) == ["basic.flac", "basic.mp3", "cover.flac"])
+        undo.redo()
+        #expect(try names(in: record).count == 3)
+    }
+
+    @Test func renamesIntoAnotherFolder() async throws {
+        let (library, ids, urls) = try await loadedLibrary()
+        let destination = urls[0].deletingLastPathComponent().appendingPathComponent("Sorted")
+        try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+        let plans = library.planRename([ids[0]], pattern: RenamePattern("%album%/%title%"), baseFolder: destination)
+        #expect(plans.first?.destination.path == destination.appendingPathComponent("Flac Album/Flac Title.flac").path)
+        #expect(library.rename(plans, undoManager: nil).isEmpty)
+        #expect(FileManager.default.fileExists(atPath: destination.appendingPathComponent("Flac Album/Flac Title.flac").path))
+    }
+
     private func names(in folder: URL) throws -> [String] {
         try FileManager.default.contentsOfDirectory(atPath: folder.path)
+            .filter { $0 != ".DS_Store" }
             .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
     }
 }
@@ -241,7 +282,7 @@ struct RenamePatternTests {
     ])
 
     func name(_ pattern: String) -> String {
-        RenamePattern(pattern).fileName(for: tags, extension: "flac").name
+        RenamePattern(pattern).relativePath(for: tags, extension: "flac").path
     }
 
     @Test func expandsPlaceholders() {
@@ -252,26 +293,49 @@ struct RenamePatternTests {
     }
 
     @Test func reportsMissingFields() {
-        let result = RenamePattern("%disc%-%track% %genre%").fileName(for: tags, extension: "mp3")
-        #expect(result.name == "07.mp3")
+        let result = RenamePattern("%disc%-%track% %genre%").relativePath(for: tags, extension: "mp3")
+        #expect(result.path == "07.mp3")
         // Without missing fields, the name is kept as is.
-        #expect(RenamePattern("-%track%-").fileName(for: tags, extension: "mp3").name == "-07-.mp3")
+        #expect(RenamePattern("-%track%-").relativePath(for: tags, extension: "mp3").path == "-07-.mp3")
         #expect(result.missing == [.discNumber, .genre])
-        #expect(RenamePattern("%genre%").fileName(for: tags, extension: "mp3").name == "")
+        #expect(RenamePattern("%genre%").relativePath(for: tags, extension: "mp3").path == "")
     }
 
     @Test func cleansNames() {
         #expect(name("...%album%.  ") == "Album.flac")
         #expect(RenamePattern.clean("Line\nbreak\u{7}") == "Line break")
-        let long = RenamePattern(String(repeating: "x", count: 300)).fileName(for: tags, extension: "flac").name
+        let long = RenamePattern(String(repeating: "x", count: 300)).relativePath(for: tags, extension: "flac").path
         #expect(long.utf8.count == 255)
         #expect(long.hasSuffix("x.flac"))
     }
 
     @Test func rejectsBadPatterns() {
         #expect(RenamePattern("%nope%").error == "Unknown placeholder “%nope%”.")
-        #expect(RenamePattern("%artist%/%title%").error != nil)
         #expect(RenamePattern("  ").error != nil)
+        #expect(RenamePattern("/%artist%/%title%").error != nil)
+        #expect(RenamePattern("%artist%/").error != nil)
+        #expect(RenamePattern("%artist%//%title%").error != nil)
         #expect(RenamePattern("%track% - %title%").error == nil)
+        #expect(RenamePattern("%artist%/%title%").error == nil)
+    }
+
+    @Test func makesFolders() {
+        let pattern = RenamePattern("%artist%/%album% (%year%)/%track% - %title%")
+        #expect(pattern.createsFolders)
+        #expect(!RenamePattern("%title%").createsFolders)
+        // "/" in a tag value never makes a folder; only the pattern's own "/" does.
+        #expect(name("%artist%/%album% (%year%)/%track% - %title%")
+            == "A, B/Album (2001)/07 - Part 1 - Intro - Reprise.flac")
+        #expect(name("Music/%album%/%title%") == "Music/Album/Part 1 - Intro - Reprise.flac")
+    }
+
+    @Test func missingTagsCantEmptyAFolderName() {
+        let result = RenamePattern("%genre%/%title%").relativePath(for: tags, extension: "flac")
+        #expect(result.path == "")
+        #expect(result.missing == [.genre])
+        // Separators are trimmed per folder name.
+        #expect(name("%album% - %genre%/%genre% - %title%") == "Album/Part 1 - Intro - Reprise.flac")
+        // A folder named ".." can't be produced.
+        #expect(name("../%title%") == "")
     }
 }

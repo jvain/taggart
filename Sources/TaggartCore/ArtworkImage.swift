@@ -43,6 +43,31 @@ public enum ArtworkImage {
         try artwork(from: Data(contentsOf: url), type: type)
     }
 
+    /// Downloads an image, e.g. one dragged from a web browser as a link.
+    @concurrent
+    public static func download(from url: URL) async throws -> Artwork {
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await URLSession.shared.data(for: URLRequest(url: url, timeoutInterval: 30))
+        } catch {
+            throw TagIOError.cannotDownload(url, reason: error.localizedDescription)
+        }
+        if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+            throw TagIOError.cannotDownload(url, reason: "The server answered with error \(http.statusCode).")
+        }
+        guard data.count <= maxDownloadSize else {
+            throw TagIOError.cannotDownload(url, reason: "The image is larger than 50 MB.")
+        }
+        do {
+            return try artwork(from: data)
+        } catch {
+            throw TagIOError.cannotDownload(url, reason: "It isn't an image Taggart can read.")
+        }
+    }
+
+    static let maxDownloadSize = 50 * 1024 * 1024
+
     /// "image/jpeg" or "image/png" if the bytes are one of those, else nil.
     public static func mimeType(of data: Data) -> String? {
         if data.starts(with: [0xFF, 0xD8, 0xFF]) {

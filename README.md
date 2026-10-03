@@ -14,12 +14,15 @@ FLAC and MP3 files, including many files at once.
   and is left alone unless you type in it. Separate multiple artists, genres or
   composers with `;`.
 - **Cover art:** drop an image on the artwork well, paste it (⌘V) or choose a
-  file. The new cover replaces the front cover of every selected file and keeps
+  file. Images dragged from a web browser, and copied image addresses, are
+  downloaded. The new cover replaces the front cover of every selected file and keeps
   other pictures (back cover, artist, …). Covers can also be removed or
   exported. HEIC, TIFF, WebP and other formats are converted to JPEG.
 - **Rename files from tags:** select files and click the rename button in the
-  toolbar or choose File → Rename Files from Tags… (⇧⌘R), with a pattern such as `%track% - %title%`. A preview shows
-  each new name. Files that would collide with an existing file, or with each
+  toolbar or choose File → Rename Files from Tags… (⇧⌘R), with a pattern such
+  as `%track% - %title%`. `/` in the pattern sorts files into folders, e.g.
+  `%albumartist%/%album%/%track% - %title%`, inside each file's folder or a
+  folder you choose. A preview shows each new name. Files that would collide with an existing file, or with each
   other, are skipped, and files missing a tag the pattern uses are flagged.
   Renames happen right away and can be undone with ⌘Z.
 - **Undo/redo** (⌘Z / ⌘⇧Z) for every edit until you save. Edits stay pending

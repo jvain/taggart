@@ -1,8 +1,10 @@
 import Darwin
 import Foundation
 
-/// A file name pattern such as "%track% - %title%". The file's extension is
-/// kept, and characters that don't belong in file names are replaced.
+/// A file name pattern such as "%track% - %title%". "/" in the pattern makes
+/// folders ("%artist%/%album%/%track% - %title%"), relative to a base folder.
+/// The file's extension is kept, and characters that don't belong in file
+/// names are replaced (including "/" in tag values).
 public struct RenamePattern: Sendable, Equatable {
     public struct Token: Sendable, Identifiable {
         public var name: String
@@ -31,6 +33,8 @@ public struct RenamePattern: Sendable, Equatable {
     private enum Part: Sendable, Equatable {
         case literal(String)
         case field(LogicalField)
+        /// A "/" in the pattern: the end of a folder name.
+        case folder
     }
 
     public let text: String
@@ -43,6 +47,18 @@ public struct RenamePattern: Sendable, Equatable {
         var parts: [Part] = []
         var error: String?
         var literal = ""
+        func flushLiteral() {
+            // Literal text may contain "/": split it into folder breaks.
+            for (index, piece) in literal.split(separator: "/", omittingEmptySubsequences: false).enumerated() {
+                if index > 0 {
+                    parts.append(.folder)
+                }
+                if !piece.isEmpty {
+                    parts.append(.literal(String(piece)))
+                }
+            }
+            literal = ""
+        }
         var rest = Substring(text)
         while let start = rest.firstIndex(of: "%") {
             literal += rest[..<start]
@@ -55,10 +71,7 @@ public struct RenamePattern: Sendable, Equatable {
             }
             let name = rest[nameStart..<end].lowercased()
             if let token = Self.tokens.first(where: { $0.name == name }) {
-                if !literal.isEmpty {
-                    parts.append(.literal(literal))
-                    literal = ""
-                }
+                flushLiteral()
                 parts.append(.field(token.field))
             } else {
                 error = error ?? "Unknown placeholder “%\(name)%”."
@@ -67,52 +80,75 @@ public struct RenamePattern: Sendable, Equatable {
             rest = rest[rest.index(after: end)...]
         }
         literal += rest
-        if !literal.isEmpty {
-            parts.append(.literal(literal))
-        }
+        flushLiteral()
 
-        if text.trimmingCharacters(in: .whitespaces).isEmpty {
+        let trimmed = text.trimmingCharacters(in: .whitespaces)
+        if trimmed.isEmpty {
             error = "Enter a pattern."
-        } else if text.contains("/") {
-            error = "File names can't contain “/”."
+        } else if trimmed.hasPrefix("/") {
+            error = "Folders are created relative to the destination: remove the leading “/”."
+        } else if trimmed.hasSuffix("/") {
+            error = "The pattern must end with a file name, not “/”."
+        } else if text.contains("//") {
+            error = "The pattern has an empty folder name (“//”)."
         }
         self.parts = parts
         self.error = error
     }
 
-    /// The file name (with `fileExtension`) these tags give, and the fields the
-    /// pattern uses that the tags lack. The name is empty if nothing is left.
-    public func fileName(for tags: TagSnapshot, extension fileExtension: String) -> (name: String, missing: [LogicalField]) {
-        var base = ""
+    /// Whether the pattern puts files into folders.
+    public var createsFolders: Bool { parts.contains(.folder) }
+
+    /// The relative path ("Artist/Album/01 - Title.flac", or just a file name)
+    /// these tags give, with `fileExtension` added, and the fields the pattern
+    /// uses that the tags lack. The path is empty if missing tags leave a file
+    /// or folder name empty.
+    public func relativePath(for tags: TagSnapshot, extension fileExtension: String) -> (path: String, missing: [LogicalField]) {
+        var components: [String] = []
         var missing: [LogicalField] = []
+        var current = ""
+        var currentMissesField = false
+        func finishComponent() {
+            var name = Self.clean(current)
+            if currentMissesField {
+                // Drop separators an empty placeholder left at either end ("- Title").
+                name = name.trimmingCharacters(in: Self.separators)
+            }
+            components.append(name)
+            current = ""
+            currentMissesField = false
+        }
         for part in parts {
             switch part {
             case let .literal(text):
-                base += text
+                current += text
             case let .field(field):
                 let value = Self.value(of: field, in: tags)
                 if value.isEmpty {
+                    currentMissesField = true
                     if !missing.contains(field) {
                         missing.append(field)
                     }
                 } else {
-                    base += value
+                    current += value
                 }
+            case .folder:
+                finishComponent()
             }
         }
-        base = Self.clean(base)
-        if !missing.isEmpty {
-            // Drop separators an empty placeholder left at either end ("- Title").
-            base = base.trimmingCharacters(in: Self.separators)
-        }
-        guard !base.isEmpty else { return ("", missing) }
+        finishComponent()
+        guard !components.contains("") else { return ("", missing) }
 
+        // Names are limited to 255 bytes; the extension counts for the file name.
         let suffix = fileExtension.isEmpty ? "" : ".\(fileExtension)"
-        // File names are limited to 255 bytes.
-        while base.utf8.count + suffix.utf8.count > 255 {
-            base.removeLast()
+        for index in components.indices {
+            let reserved = index == components.count - 1 ? suffix.utf8.count : 0
+            while components[index].utf8.count + reserved > 255 {
+                components[index].removeLast()
+            }
         }
-        return (base + suffix, missing)
+        components[components.count - 1] += suffix
+        return (components.joined(separator: "/"), missing)
     }
 
     private static let separators = CharacterSet.whitespaces.union(CharacterSet(charactersIn: "-–—_.,;"))
@@ -170,6 +206,8 @@ public struct RenamePlan: Identifiable, Sendable {
     public var source: URL
     public var destination: URL
     public var status: Status
+    /// The new name, with any new folders, relative to the destination folder.
+    public var relativePath: String
     /// Fields the pattern uses that this file lacks.
     public var missing: [LogicalField] = []
 }
@@ -188,10 +226,38 @@ enum FileRenamer {
         }
         guard result == 0 else {
             let code = errno
-            let reason = code == EEXIST
-                ? "A file named “\(destination.lastPathComponent)” already exists."
-                : String(cString: strerror(code))
+            let reason = switch code {
+            case EEXIST: "A file named “\(destination.lastPathComponent)” already exists."
+            case EXDEV: "Files can't be moved to another disk; choose a folder on the same disk."
+            default: String(cString: strerror(code))
+            }
             throw TagIOError.cannotRename(source, reason: reason)
+        }
+    }
+
+    /// Creates the folder `url` will go in, if needed. Returns the folders that
+    /// were created, outermost first.
+    static func createParentFolders(of url: URL) throws -> [URL] {
+        var missing: [URL] = []
+        var folder = url.deletingLastPathComponent()
+        while !exists(folder) {
+            missing.insert(folder, at: 0)
+            folder = folder.deletingLastPathComponent()
+        }
+        if let innermost = missing.last {
+            do {
+                try FileManager.default.createDirectory(at: innermost, withIntermediateDirectories: true)
+            } catch {
+                throw TagIOError.cannotRename(url, reason: "The folder “\(innermost.lastPathComponent)” couldn't be created.")
+            }
+        }
+        return missing
+    }
+
+    /// Removes those of `folders` that are empty, innermost first.
+    static func removeEmptyFolders(_ folders: [URL]) {
+        for folder in folders.reversed() {
+            _ = folder.withUnsafeFileSystemRepresentation { rmdir($0!) }
         }
     }
 

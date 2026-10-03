@@ -11,6 +11,8 @@ final class AppController {
     var selection = Set<AudioFileItem.ID>()
     var alert: AppAlert?
     var renameRequest: RenameRequest?
+    /// True while a cover is being downloaded from the web.
+    var isDownloadingArtwork = false
 
     /// The main window's undo manager and window opener, captured from its environment.
     @ObservationIgnored var undoManager: UndoManager?
@@ -116,12 +118,30 @@ final class AppController {
         setArtwork(for: ids) { try ArtworkImage.artwork(contentsOf: url) }
     }
 
+    /// Pastes an image, an image file, or a copied image address ("Copy Image
+    /// Address" in a browser), which is downloaded.
     func pasteArtwork(for ids: Set<AudioFileItem.ID>) {
-        guard let data = Pasteboard.imageData() else {
+        if let data = Pasteboard.imageData() {
+            setArtwork(for: ids) { try ArtworkImage.artwork(from: data) }
+        } else if let url = Pasteboard.webURL() {
+            downloadArtwork(from: url, for: ids)
+        } else {
             NSSound.beep()
-            return
         }
-        setArtwork(for: ids) { try ArtworkImage.artwork(from: data) }
+    }
+
+    /// Downloads an image and sets it as the cover of the files that were
+    /// selected when the download began.
+    func downloadArtwork(from url: URL, for ids: Set<AudioFileItem.ID>) {
+        isDownloadingArtwork = true
+        Task {
+            defer { isDownloadingArtwork = false }
+            do {
+                apply(.setFrontCover(try await ArtworkImage.download(from: url)), to: ids)
+            } catch {
+                alert = AppAlert(title: "The image couldn't be downloaded", messages: [error.localizedDescription])
+            }
+        }
     }
 
     func setArtwork(for ids: Set<AudioFileItem.ID>, _ make: () throws -> Artwork) {
@@ -225,5 +245,18 @@ enum Pasteboard {
         }
         let types: [NSPasteboard.PasteboardType] = [.init(UTType.jpeg.identifier), .png, .tiff]
         return types.lazy.compactMap { pasteboard.data(forType: $0) }.first
+    }
+
+    /// A web address on the general pasteboard, as a URL or as text.
+    static func webURL() -> URL? {
+        let pasteboard = NSPasteboard.general
+        let urls = pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL] ?? []
+        let text = pasteboard.string(forType: .string)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let candidates = urls + [text.flatMap { URL(string: $0) }].compactMap { $0 }
+        return candidates.first(where: isWebURL)
+    }
+
+    static func isWebURL(_ url: URL) -> Bool {
+        ["http", "https"].contains(url.scheme?.lowercased() ?? "") && url.host() != nil
     }
 }

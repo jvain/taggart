@@ -273,6 +273,20 @@ struct ArtworkTests {
         #expect(reloaded.snapshot.artwork.isEmpty)
     }
 
+    @Test func downloadsImages() async throws {
+        // URLSession treats file URLs like web addresses, so no network is needed.
+        let artwork = try await ArtworkImage.download(from: fixture("blue.jpg"))
+        #expect(artwork.mimeType == "image/jpeg")
+        #expect(artwork.width == 32)
+
+        let notAnImage = try fixture("basic.mp3")
+        await #expect(throws: TagIOError.cannotDownload(notAnImage, reason: "It isn't an image Taggart can read.")) {
+            try await ArtworkImage.download(from: notAnImage)
+        }
+        let missing = URL(fileURLWithPath: "/nonexistent/cover.jpg")
+        await #expect(throws: TagIOError.self) { try await ArtworkImage.download(from: missing) }
+    }
+
     @Test func convertsUncommonImageFormatsToJPEG() throws {
         let image = try #require(ArtworkImage.thumbnail(of: fixtureData("blue.jpg")))
         let tiff = NSMutableData()

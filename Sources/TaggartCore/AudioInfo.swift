@@ -91,6 +91,7 @@ public enum TagIOError: LocalizedError, Equatable {
     case cannotWrite(URL, reason: String)
     case modifiedOnDisk(URL)
     case cannotRename(URL, reason: String)
+    case cannotDownload(URL, reason: String)
     case artworkUnavailable(URL)
     case unsupportedImage
 
@@ -104,6 +105,8 @@ public enum TagIOError: LocalizedError, Equatable {
             "“\(url.lastPathComponent)” was changed by another app since it was loaded. Revert it to reload, then edit again."
         case let .cannotRename(url, reason):
             "Couldn't rename “\(url.lastPathComponent)”. \(reason)"
+        case let .cannotDownload(url, reason):
+            "Couldn't get the image from \(url.host() ?? url.absoluteString). \(reason)"
         case let .artworkUnavailable(url):
             "The existing artwork in “\(url.lastPathComponent)” could not be read back while saving."
         case .unsupportedImage:

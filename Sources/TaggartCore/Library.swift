@@ -276,24 +276,33 @@ public final class Library {
     // MARK: Renaming
 
     /// What renaming the files in `ids` with `pattern` would do, in list order.
-    /// Files that would collide with an existing file or with each other are
-    /// skipped rather than renamed.
-    public func planRename(_ ids: Set<AudioFileItem.ID>, pattern: RenamePattern) -> [RenamePlan] {
+    /// New names (and folders) go in `baseFolder`, or by default in each
+    /// file's current folder. Files that would collide with an existing file
+    /// or with each other are skipped rather than renamed.
+    public func planRename(_ ids: Set<AudioFileItem.ID>, pattern: RenamePattern, baseFolder: URL? = nil) -> [RenamePlan] {
         guard pattern.error == nil else { return [] }
         var plans = items(ids).map { item in
-            let (name, missing) = pattern.fileName(for: item.edited, extension: item.url.pathExtension)
-            let destination = item.url.deletingLastPathComponent().appendingPathComponent(name)
+            let (path, missing) = pattern.relativePath(for: item.edited, extension: item.url.pathExtension)
+            let base = baseFolder ?? item.url.deletingLastPathComponent()
+            let destination = base.appendingPathComponent(path)
             let status: RenamePlan.Status =
-                if name.isEmpty {
-                    .skipped("The tags give an empty name.")
-                } else if name == item.url.lastPathComponent {
+                if path.isEmpty {
+                    .skipped("No \(missing.map(\.label).joined(separator: " or ")) in this file's tags, which leaves a name empty.")
+                } else if destination.standardizedFileURL.path == item.url.standardizedFileURL.path {
                     .unchanged
                 } else if FileRenamer.exists(destination) && !FileRenamer.isSameFile(item.url, destination) {
                     .skipped("A file with this name already exists.")
                 } else {
                     .rename
                 }
-            return RenamePlan(id: item.id, source: item.url, destination: destination, status: status, missing: missing)
+            return RenamePlan(
+                id: item.id,
+                source: item.url,
+                destination: destination,
+                status: status,
+                relativePath: path,
+                missing: missing
+            )
         }
 
         // Default APFS volumes ignore case and Unicode normalization.
@@ -308,28 +317,49 @@ public final class Library {
         return plans
     }
 
-    /// Renames files on disk right away (renames aren't staged like tag edits).
-    /// Undoable. Returns an error message for each file that couldn't be renamed.
+    /// Renames (or moves) files on disk right away; renames aren't staged like
+    /// tag edits. Creates folders as needed. Undoable: undo moves the files
+    /// back and removes the folders it created, if they're empty.
+    /// Returns an error message for each file that couldn't be renamed.
     @discardableResult
     public func rename(_ plans: [RenamePlan], undoManager: UndoManager?) -> [String] {
+        rename(plans, removingEmptyFolders: [], undoManager: undoManager)
+    }
+
+    private func rename(_ plans: [RenamePlan], removingEmptyFolders cleanup: [URL], undoManager: UndoManager?) -> [String] {
         var reversed: [RenamePlan] = []
+        var createdFolders: [URL] = []
         var failures: [String] = []
         for plan in plans where plan.status == .rename {
             guard let item = itemsByID[plan.id], item.url == plan.source else { continue }
             do {
-                try FileRenamer.move(plan.source, to: plan.destination)
+                let created = try FileRenamer.createParentFolders(of: plan.destination)
+                do {
+                    try FileRenamer.move(plan.source, to: plan.destination)
+                } catch {
+                    FileRenamer.removeEmptyFolders(created)
+                    throw error
+                }
+                createdFolders += created
                 itemsByURL[plan.source] = nil
                 item.url = plan.destination
                 itemsByURL[plan.destination] = item
-                reversed.append(RenamePlan(id: plan.id, source: plan.destination, destination: plan.source, status: .rename))
+                reversed.append(RenamePlan(
+                    id: plan.id,
+                    source: plan.destination,
+                    destination: plan.source,
+                    status: .rename,
+                    relativePath: plan.source.lastPathComponent
+                ))
             } catch {
                 failures.append(error.localizedDescription)
             }
         }
+        FileRenamer.removeEmptyFolders(cleanup)
         if let undoManager, !reversed.isEmpty {
             undoManager.registerUndo(withTarget: self) { [weak undoManager] library in
                 MainActor.assumeIsolated {
-                    _ = library.rename(reversed, undoManager: undoManager)
+                    _ = library.rename(reversed, removingEmptyFolders: createdFolders, undoManager: undoManager)
                 }
             }
             undoManager.setActionName(reversed.count == 1 ? "Rename File" : "Rename Files")

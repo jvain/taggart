@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import TaggartCore
 
@@ -7,10 +8,13 @@ struct RenameSheet: View {
     @Environment(AppController.self) private var controller
     @Environment(\.dismiss) private var dismiss
     @AppStorage("renamePattern") private var patternText = "%track% - %title%"
+    /// Where a pattern with folders puts them: each file's own folder, or this one.
+    @AppStorage("renameIntoChosenFolder") private var intoChosenFolder = false
+    @AppStorage("renameChosenFolder") private var chosenFolderPath = ""
 
     var body: some View {
         let pattern = RenamePattern(patternText)
-        let plans = controller.library.planRename(ids, pattern: pattern)
+        let plans = controller.library.planRename(ids, pattern: pattern, baseFolder: baseFolder(for: pattern))
         let renameCount = plans.filter { $0.status == .rename }.count
 
         VStack(alignment: .leading, spacing: 14) {
@@ -18,25 +22,20 @@ struct RenameSheet: View {
                 .font(.title3.bold())
 
             VStack(alignment: .leading, spacing: 8) {
-                TextField("Pattern", text: $patternText, prompt: Text("%track% - %title%"))
-                    .textFieldStyle(.roundedBorder)
-                    .font(.body.monospaced())
-                    .labelsHidden()
-                FlowLayout(spacing: 6) {
-                    ForEach(RenamePattern.tokens) { token in
-                        Button(token.label) { patternText += token.placeholder }
-                            .controlSize(.small)
-                            .help("Add \(token.placeholder) to the pattern")
-                    }
-                }
+                PatternEditor(text: $patternText)
                 if let error = pattern.error {
                     Label(error, systemImage: "exclamationmark.triangle.fill")
                         .foregroundStyle(.red)
                 } else {
-                    Text("The file extension is kept. “/” and “:” in tags become “-”.")
+                    Text("Use “/” to make folders, e.g. %artist%/%album%/%track% - %title%. The file extension is kept. “/” and “:” in tags become “-”.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
+            }
+
+            if pattern.createsFolders && pattern.error == nil {
+                destinationPicker
             }
 
             Table(plans) {
@@ -72,6 +71,67 @@ struct RenameSheet: View {
         }
         .padding(20)
         .frame(minWidth: 640, idealWidth: 720, minHeight: 500, idealHeight: 560)
+    }
+
+    private var chosenFolder: URL? {
+        guard !chosenFolderPath.isEmpty else { return nil }
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: chosenFolderPath, isDirectory: &isDirectory), isDirectory.boolValue
+        else { return nil }
+        return URL(fileURLWithPath: chosenFolderPath, isDirectory: true)
+    }
+
+    private func baseFolder(for pattern: RenamePattern) -> URL? {
+        pattern.createsFolders && intoChosenFolder ? chosenFolder : nil
+    }
+
+    private var destinationPicker: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text("Create folders in:")
+            VStack(alignment: .leading, spacing: 6) {
+                Picker("Create folders in:", selection: Binding(
+                    get: { intoChosenFolder && chosenFolder != nil },
+                    set: { chooseFolder in
+                        if chooseFolder && chosenFolder == nil {
+                            showFolderPanel()
+                        } else {
+                            intoChosenFolder = chooseFolder
+                        }
+                    }
+                )) {
+                    Text("Each file's current folder").tag(false)
+                    Text(chosenFolder.map { "“\($0.lastPathComponent)”" } ?? "Another folder…").tag(true)
+                }
+                .pickerStyle(.radioGroup)
+                .labelsHidden()
+                if intoChosenFolder, let chosenFolder {
+                    HStack(spacing: 6) {
+                        Text(chosenFolder.path(percentEncoded: false))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Button("Change…", action: showFolderPanel)
+                            .controlSize(.small)
+                    }
+                }
+            }
+        }
+    }
+
+    private func showFolderPanel() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.canCreateDirectories = true
+        panel.prompt = "Choose"
+        panel.message = "Choose the folder to create the new folders in. It must be on the same disk as the files."
+        if let chosenFolder {
+            panel.directoryURL = chosenFolder
+        }
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        chosenFolderPath = url.path(percentEncoded: false)
+        intoChosenFolder = true
     }
 
     private func summary(_ plans: [RenamePlan]) -> String {
@@ -114,7 +174,7 @@ private struct NewNameCell: View {
         switch plan.status {
         case .rename:
             HStack(spacing: 4) {
-                Text(plan.destination.lastPathComponent)
+                Text(plan.relativePath)
                 if !plan.missing.isEmpty {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .foregroundStyle(.yellow)
@@ -122,16 +182,107 @@ private struct NewNameCell: View {
                 }
             }
         case .unchanged:
-            Text("\(plan.destination.lastPathComponent) (unchanged)")
+            Text("\(plan.relativePath) (unchanged)")
                 .foregroundStyle(.secondary)
         case let .skipped(reason):
             HStack(spacing: 4) {
                 Image(systemName: "xmark.octagon.fill")
                     .foregroundStyle(.red)
-                Text(plan.destination.lastPathComponent.isEmpty ? reason : plan.destination.lastPathComponent)
-                    .strikethrough(!plan.destination.lastPathComponent.isEmpty)
+                Text(plan.relativePath.isEmpty ? reason : plan.relativePath)
+                    .strikethrough(!plan.relativePath.isEmpty)
             }
             .help("Skipped: \(reason)")
+        }
+    }
+}
+
+/// The pattern field and the placeholder buttons. On macOS 15 and later the
+/// buttons insert at the cursor (replacing any selection); earlier systems
+/// lack the text selection API, so there they add to the end.
+private struct PatternEditor: View {
+    @Binding var text: String
+
+    var body: some View {
+        if #available(macOS 15, *) {
+            CursorPatternEditor(text: $text)
+        } else {
+            VStack(alignment: .leading, spacing: 8) {
+                PatternField(text: $text)
+                PlaceholderButtons { text += $0 }
+            }
+        }
+    }
+}
+
+@available(macOS 15, *)
+private struct CursorPatternEditor: View {
+    @Binding var text: String
+    @ViewState private var selection: TextSelection?
+    @FocusState private var isFocused: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            PatternField(text: $text, selection: $selection)
+                .focused($isFocused)
+            PlaceholderButtons(insert: insert)
+        }
+    }
+
+    private func insert(_ placeholder: String) {
+        var range = text.endIndex..<text.endIndex
+        if case let .selection(selected) = selection?.indices,
+           selected.lowerBound >= text.startIndex, selected.upperBound <= text.endIndex {
+            range = selected
+        }
+        let offset = text.distance(from: text.startIndex, to: range.lowerBound)
+        text.replaceSubrange(range, with: placeholder)
+        // Put the cursor after the inserted placeholder, ready for more typing.
+        selection = TextSelection(insertionPoint: text.index(text.startIndex, offsetBy: offset + placeholder.count))
+        isFocused = true
+    }
+}
+
+private struct PatternField: View {
+    @Binding var text: String
+    var selection: Any?
+
+    init(text: Binding<String>) {
+        _text = text
+    }
+
+    @available(macOS 15, *)
+    init(text: Binding<String>, selection: Binding<TextSelection?>) {
+        _text = text
+        self.selection = selection
+    }
+
+    var body: some View {
+        Group {
+            if #available(macOS 15, *), let selection = selection as? Binding<TextSelection?> {
+                TextField("Pattern", text: $text, selection: selection, prompt: Text(verbatim: "%track% - %title%"))
+            } else {
+                TextField("Pattern", text: $text, prompt: Text(verbatim: "%track% - %title%"))
+            }
+        }
+        .textFieldStyle(.roundedBorder)
+        .font(.body.monospaced())
+        .labelsHidden()
+    }
+}
+
+private struct PlaceholderButtons: View {
+    let insert: (String) -> Void
+
+    var body: some View {
+        FlowLayout(spacing: 6) {
+            ForEach(RenamePattern.tokens) { token in
+                Button(token.label) { insert(token.placeholder) }
+                    .controlSize(.small)
+                    .help("Insert \(token.placeholder)")
+            }
+            Button("Folder /") { insert("/") }
+                .controlSize(.small)
+                .help("Insert “/” to start a new folder level")
         }
     }
 }

@@ -27,10 +27,17 @@ struct ArtworkWell: View {
                     }
                 }
                 .contentShape(Rectangle())
-                .onDrop(of: [.fileURL, .image], isTargeted: $isTargeted, perform: drop)
+                .overlay {
+                    if controller.isDownloadingArtwork {
+                        ProgressView("Downloading…")
+                            .padding(12)
+                            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+                    }
+                }
+                .onDrop(of: [.fileURL, .image, .url], isTargeted: $isTargeted, perform: drop)
                 .focusable()
                 .focusEffectDisabled()
-                .onPasteCommand(of: [.fileURL, .image]) { _ in controller.pasteArtwork(for: ids) }
+                .onPasteCommand(of: [.fileURL, .image, .url, .plainText]) { _ in controller.pasteArtwork(for: ids) }
                 .contextMenu { menuItems(state) }
 
             Text(caption(state))
@@ -127,13 +134,28 @@ struct ArtworkWell: View {
             }
             return true
         }
-        guard let type = provider.registeredContentTypes.first(where: { $0.conforms(to: .image) }) else { return false }
-        _ = provider.loadDataRepresentation(for: type) { data, _ in
-            guard let data else { return }
-            Task { @MainActor in
-                controller.setArtwork(for: targets) { try ArtworkImage.artwork(from: data) }
+        if let type = provider.registeredContentTypes.first(where: { $0.conforms(to: .image) }) {
+            _ = provider.loadDataRepresentation(for: type) { data, _ in
+                guard let data else { return }
+                Task { @MainActor in
+                    controller.setArtwork(for: targets) { try ArtworkImage.artwork(from: data) }
+                }
             }
+            return true
         }
-        return true
+        // Browsers often drag just the image's web address: download it.
+        if provider.canLoadObject(ofClass: URL.self) {
+            _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                Task { @MainActor in
+                    if let url, Pasteboard.isWebURL(url) {
+                        controller.downloadArtwork(from: url, for: targets)
+                    } else {
+                        NSSound.beep()
+                    }
+                }
+            }
+            return true
+        }
+        return false
     }
 }
