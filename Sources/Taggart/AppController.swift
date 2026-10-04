@@ -103,8 +103,8 @@ final class AppController {
         renameRequest = RenameRequest(ids: selection)
     }
 
-    func rename(_ plans: [RenamePlan]) {
-        let failures = library.rename(plans, undoManager: undoManager)
+    func rename(_ plans: [RenamePlan], removeFoldersLeftEmpty: Bool = false) {
+        let failures = library.rename(plans, removeFoldersLeftEmpty: removeFoldersLeftEmpty, undoManager: undoManager)
         if !failures.isEmpty {
             alert = AppAlert(
                 title: failures.count == 1 ? "A file couldn't be renamed" : "\(failures.count) files couldn't be renamed",

@@ -387,12 +387,21 @@ public final class Library {
     /// back and removes the folders it created, if they're empty.
     /// Returns an error message for each file that couldn't be renamed.
     @discardableResult
-    public func rename(_ plans: [RenamePlan], undoManager: UndoManager?) -> [String] {
-        rename(plans, removingEmptyFolders: [], undoManager: undoManager)
+    ///
+    /// With `removeFoldersLeftEmpty`, folders that files moved out of are
+    /// removed if that left them empty (see `FileRenamer.removeFoldersLeftEmpty`).
+    public func rename(_ plans: [RenamePlan], removeFoldersLeftEmpty: Bool = false, undoManager: UndoManager?) -> [String] {
+        rename(plans, removingEmptyFolders: [], removeFoldersLeftEmpty: removeFoldersLeftEmpty, undoManager: undoManager)
     }
 
-    private func rename(_ plans: [RenamePlan], removingEmptyFolders cleanup: [URL], undoManager: UndoManager?) -> [String] {
+    private func rename(
+        _ plans: [RenamePlan],
+        removingEmptyFolders cleanup: [URL],
+        removeFoldersLeftEmpty: Bool = false,
+        undoManager: UndoManager?
+    ) -> [String] {
         var reversed: [RenamePlan] = []
+        var vacatedFolders = Set<URL>()
         var createdFolders: [URL] = []
         var failures: [String] = []
         for plan in plans where plan.status == .rename {
@@ -406,6 +415,9 @@ public final class Library {
                     throw error
                 }
                 createdFolders += created
+                if plan.source.deletingLastPathComponent() != plan.destination.deletingLastPathComponent() {
+                    vacatedFolders.insert(plan.source.deletingLastPathComponent())
+                }
                 itemsByURL[plan.source] = nil
                 item.url = plan.destination
                 itemsByURL[plan.destination] = item
@@ -421,6 +433,10 @@ public final class Library {
             }
         }
         FileRenamer.removeEmptyFolders(cleanup)
+        // Undo moves the files back, recreating these folders as needed.
+        if removeFoldersLeftEmpty {
+            FileRenamer.removeFoldersLeftEmpty(vacatedFolders)
+        }
         if let undoManager, !reversed.isEmpty {
             undoManager.registerUndo(withTarget: self) { [weak undoManager] library in
                 MainActor.assumeIsolated {

@@ -28,6 +28,13 @@
 	<string>14.0</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
+	<!-- Covers dropped from a browser can have plain http:// addresses.
+	     Taggart tries https:// first, but must be allowed to fall back. -->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+	</dict>
 	<key>NSHumanReadableCopyright</key>
 	<string>Free software under the MIT License.</string>
 	<key>CFBundleDocumentTypes</key>

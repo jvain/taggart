@@ -8,19 +8,22 @@ None left; see Done below.
 
 ## Smaller improvements
 
-- [ ] **Remove folders left empty** after renaming files into new folders
-  (optional; currently the old folders stay).
-- [ ] **Plain `http://` cover downloads from other hosts** may be blocked by
-  App Transport Security (only `https://` and local servers were tested).
+None left; see Done below.
 
 ## Housekeeping
 
-- [ ] Add `*.swp` to `.gitignore`.
-- [ ] Offer a `.dmg` as well as the zip for releases.
 - [ ] Test the Intel build (Rosetta isn't installed on the development Mac).
 
 ## Done
 
+- [x] **Remove folders left empty** after renaming files into new folders: an
+  option in the rename dialog (off by default). Protected folders (home,
+  Music, Downloads, …) are never removed; undo restores the folders.
+- [x] **Plain `http://` cover downloads:** https:// is tried first; plain http
+  is allowed as a fallback (App Transport Security exception in Info.plist).
+- [x] **`.dmg` for releases:** `scripts/build-app.sh --release` makes one next
+  to the zip (signed and notarized with `--sign` / `--notarize`).
+- [x] Add `*.swp` to `.gitignore`.
 - [x] **Edit in the list:** tag cells are editable in place; Return moves to
   the same column on the next row.
 - [x] **Tags from file names:** File → Tags from File Names… reads tags from

@@ -475,6 +475,66 @@ struct LibraryTests {
         #expect(try names(in: record).count == 3)
     }
 
+    /// Three files in "<temp>/Old Album", loaded; returns the library, ids and the two folders.
+    func filesInOldAlbum(extra: String? = nil) async throws -> (Library, [AudioFileItem.ID], root: URL, old: URL) {
+        let (setup, _, urls) = try await loadedLibrary()
+        let root = urls[0].deletingLastPathComponent()
+        let old = root.appendingPathComponent("Old Album")
+        try FileManager.default.createDirectory(at: old, withIntermediateDirectories: true)
+        for url in urls {
+            try FileManager.default.moveItem(at: url, to: old.appendingPathComponent(url.lastPathComponent))
+        }
+        if let extra {
+            try Data().write(to: old.appendingPathComponent(extra))
+        }
+        _ = setup
+        let library = Library()
+        await library.add([old])
+        return (library, library.items.map(\.id), root, old)
+    }
+
+    @Test func removesFoldersLeftEmpty() async throws {
+        // Finder's .DS_Store doesn't keep a folder.
+        let (library, ids, root, old) = try await filesInOldAlbum(extra: ".DS_Store")
+        let plans = library.planRename(Set(ids), pattern: RenamePattern("New/%title%"), baseFolder: root)
+        let undo = undoManager()
+        undo.beginUndoGrouping()
+        #expect(library.rename(plans, removeFoldersLeftEmpty: true, undoManager: undo).isEmpty)
+        undo.endUndoGrouping()
+        #expect(!FileManager.default.fileExists(atPath: old.path))
+        // The folder the files went into is still there, so the walk up stopped.
+        #expect(FileManager.default.fileExists(atPath: root.path))
+
+        undo.undo()
+        #expect(try names(in: old) == ["basic.flac", "basic.mp3", "cover.flac"])
+        #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent("New").path))
+        undo.redo()
+        #expect(!FileManager.default.fileExists(atPath: old.path))
+    }
+
+    @Test func keepsFoldersThatAreNotEmpty() async throws {
+        let (library, ids, root, old) = try await filesInOldAlbum(extra: "notes.txt")
+        let plans = library.planRename(Set(ids), pattern: RenamePattern("New/%title%"), baseFolder: root)
+        #expect(library.rename(plans, removeFoldersLeftEmpty: true, undoManager: nil).isEmpty)
+        #expect(try names(in: old) == ["notes.txt"])
+
+        // Without the option, even an emptied folder stays.
+        let (library2, ids2, root2, old2) = try await filesInOldAlbum()
+        let plans2 = library2.planRename(Set(ids2), pattern: RenamePattern("New/%title%"), baseFolder: root2)
+        #expect(library2.rename(plans2, undoManager: nil).isEmpty)
+        #expect(try names(in: old2).isEmpty)
+    }
+
+    @Test func neverRemovesImportantFolders() throws {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        #expect(!FileRenamer.isRemovableWhenEmpty(home))
+        #expect(!FileRenamer.isRemovableWhenEmpty(home.appendingPathComponent("Music")))
+        #expect(!FileRenamer.isRemovableWhenEmpty(home.appendingPathComponent("Downloads")))
+        #expect(!FileRenamer.isRemovableWhenEmpty(URL(fileURLWithPath: "/Volumes/Some Disk")))
+        #expect(!FileRenamer.isRemovableWhenEmpty(URL(fileURLWithPath: "/Users")))
+        #expect(FileRenamer.isRemovableWhenEmpty(home.appendingPathComponent("Music/Some Album")))
+    }
+
     @Test func renamesIntoAnotherFolder() async throws {
         let (library, ids, urls) = try await loadedLibrary()
         let destination = urls[0].deletingLastPathComponent().appendingPathComponent("Sorted")

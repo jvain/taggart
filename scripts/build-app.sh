@@ -4,12 +4,14 @@
 #   scripts/build-app.sh
 #       For your own Mac: build/Taggart.app, native architecture, ad-hoc signed.
 #   scripts/build-app.sh --release
-#       For other people: a universal (Apple silicon + Intel) build, zipped as
-#       build/Taggart-<version>.zip. Ad-hoc signed unless --sign is given.
+#       For other people: a universal (Apple silicon + Intel) build, packaged as
+#       build/Taggart-<version>.zip and build/Taggart-<version>.dmg (with an
+#       Applications shortcut to drag the app to). Ad-hoc signed unless --sign.
 #   scripts/build-app.sh --sign "Developer ID Application: Name (TEAMID)"
 #       Signs with that certificate, with the hardened runtime.
 #   scripts/build-app.sh --sign "…" --notarize <profile>
-#       Also has Apple notarize the release and staples the ticket to the app.
+#       Also has Apple notarize the release, stapling the tickets to the app
+#       and the disk image.
 #       <profile> is a notarytool keychain profile, created once with:
 #       xcrun notarytool store-credentials <profile> --apple-id <id> --team-id <team>
 #
@@ -18,7 +20,7 @@ set -eu
 cd "$(dirname "$0")/.."
 
 usage() {
-    sed -n '2,16s/^# \{0,1\}//p' "$0"
+    sed -n '2,18s/^# \{0,1\}//p' "$0"
 }
 
 die() {
@@ -97,28 +99,50 @@ echo "Built $app ($(lipo -archs "$app/Contents/MacOS/Taggart"), version $version
 
 [ "$release" = 1 ] || exit 0
 
-# Package, and notarize if asked.
+# Submits a file to Apple's notary service and waits for the verdict.
+notarize() {
+    echo "Submitting $1 to Apple for notarization (this usually takes a few minutes)…"
+    log="$(mktemp)"
+    xcrun notarytool submit "$1" --keychain-profile "$profile" --wait | tee "$log"
+    if ! grep -q "status: Accepted" "$log"; then
+        rm -f "$log"
+        die "notarization of $1 failed; see why with: xcrun notarytool log <submission id> --keychain-profile $profile"
+    fi
+    rm -f "$log"
+}
+
+# The zip, notarized if asked; the app then gets the ticket stapled to it.
 zip="build/Taggart-$version.zip"
 rm -f "$zip"
 ditto -c -k --keepParent "$app" "$zip"
-
 if [ -n "$profile" ]; then
-    echo "Submitting to Apple for notarization (this usually takes a few minutes)…"
-    log="$(mktemp)"
-    xcrun notarytool submit "$zip" --keychain-profile "$profile" --wait | tee "$log"
-    if ! grep -q "status: Accepted" "$log"; then
-        rm -f "$log"
-        die "notarization failed; see why with: xcrun notarytool log <submission id> --keychain-profile $profile"
-    fi
-    rm -f "$log"
+    notarize "$zip"
     xcrun stapler staple "$app"
     # Re-zip so the download contains the stapled ticket.
     rm -f "$zip"
     ditto -c -k --keepParent "$app" "$zip"
     spctl --assess --type execute --verbose "$app"
 fi
-
 echo "Packaged $zip"
+
+# The disk image: the (stapled) app plus an Applications shortcut.
+dmg="build/Taggart-$version.dmg"
+staging="$(mktemp -d)"
+ditto "$app" "$staging/Taggart.app"
+ln -s /Applications "$staging/Applications"
+rm -f "$dmg"
+hdiutil create -quiet -volname "Taggart $version" -srcfolder "$staging" -format UDZO -ov "$dmg"
+rm -rf "$staging"
+if [ -n "$identity" ]; then
+    codesign --force --timestamp --sign "$identity" "$dmg"
+fi
+if [ -n "$profile" ]; then
+    notarize "$dmg"
+    xcrun stapler staple "$dmg"
+    spctl --assess --type open --context context:primary-signature --verbose "$dmg"
+fi
+echo "Packaged $dmg"
+
 if [ -z "$identity" ]; then
     echo "Note: ad-hoc signed. On other Macs, people must allow it once in"
     echo "System Settings → Privacy & Security → Open Anyway."

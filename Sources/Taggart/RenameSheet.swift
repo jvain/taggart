@@ -11,6 +11,8 @@ struct RenameSheet: View {
     /// Where a pattern with folders puts them: each file's own folder, or this one.
     @AppStorage("renameIntoChosenFolder") private var intoChosenFolder = false
     @AppStorage("renameChosenFolder") private var chosenFolderPath = ""
+    /// Off by default: folders are only removed when the user asks for it.
+    @AppStorage("renameRemovesEmptyFolders") private var removesEmptyFolders = false
 
     var body: some View {
         let pattern = RenamePattern(patternText)
@@ -62,7 +64,7 @@ struct RenameSheet: View {
                 Button("Cancel", role: .cancel) { dismiss() }
                     .keyboardShortcut(.cancelAction)
                 Button(renameCount == 1 ? "Rename 1 File" : "Rename \(renameCount) Files") {
-                    controller.rename(plans)
+                    controller.rename(plans, removeFoldersLeftEmpty: pattern.createsFolders && removesEmptyFolders)
                     dismiss()
                 }
                 .keyboardShortcut(.defaultAction)
@@ -115,6 +117,8 @@ struct RenameSheet: View {
                             .controlSize(.small)
                     }
                 }
+                Toggle("Remove folders left empty", isOn: $removesEmptyFolders)
+                    .help("After moving the files, remove the folders they came from if nothing else is left in them (Finder's hidden .DS_Store files don't count). Undo puts them back.")
             }
         }
     }

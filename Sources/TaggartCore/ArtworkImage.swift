@@ -51,13 +51,25 @@ public enum ArtworkImage {
         try artwork(from: Data(contentsOf: url), type: type, maxPixelSize: maxPixelSize)
     }
 
-    /// Downloads an image, e.g. one dragged from a web browser as a link.
+    /// Downloads an image, e.g. one dragged from a web browser as a link. For a
+    /// plain http:// address the secure https:// one is tried first.
     @concurrent
     public static func download(from url: URL, maxPixelSize: Int? = nil) async throws -> Artwork {
+        if url.scheme?.lowercased() == "http", var components = URLComponents(url: url, resolvingAgainstBaseURL: false) {
+            components.scheme = "https"
+            if let secure = components.url,
+               let artwork = try? await fetch(secure, timeout: 10, maxPixelSize: maxPixelSize) {
+                return artwork
+            }
+        }
+        return try await fetch(url, timeout: 30, maxPixelSize: maxPixelSize)
+    }
+
+    private static func fetch(_ url: URL, timeout: TimeInterval, maxPixelSize: Int?) async throws -> Artwork {
         let data: Data
         let response: URLResponse
         do {
-            (data, response) = try await URLSession.shared.data(for: URLRequest(url: url, timeoutInterval: 30))
+            (data, response) = try await URLSession.shared.data(for: URLRequest(url: url, timeoutInterval: timeout))
         } catch {
             throw TagIOError.cannotDownload(url, reason: error.localizedDescription)
         }

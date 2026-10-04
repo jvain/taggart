@@ -254,6 +254,46 @@ enum FileRenamer {
         return missing
     }
 
+    /// Removes `folders` if they're empty (a Finder .DS_Store doesn't count),
+    /// then their parents while those are empty too, deepest first. Never
+    /// removes the home folder, its standard folders, or a disk's top level.
+    static func removeFoldersLeftEmpty(_ folders: Set<URL>) {
+        for start in folders.sorted(by: { $0.pathComponents.count > $1.pathComponents.count }) {
+            var folder = start.standardizedFileURL
+            while isRemovableWhenEmpty(folder), removeIfEmpty(folder) {
+                folder = folder.deletingLastPathComponent()
+            }
+        }
+    }
+
+    private static func removeIfEmpty(_ folder: URL) -> Bool {
+        guard let contents = try? FileManager.default.contentsOfDirectory(atPath: folder.path),
+              contents.allSatisfy({ $0 == ".DS_Store" })
+        else { return false }
+        if !contents.isEmpty {
+            try? FileManager.default.removeItem(at: folder.appendingPathComponent(".DS_Store"))
+        }
+        return folder.withUnsafeFileSystemRepresentation { rmdir($0!) } == 0
+    }
+
+    /// False for folders that must stay even when empty.
+    static func isRemovableWhenEmpty(_ folder: URL) -> Bool {
+        let path = folder.standardizedFileURL.resolvingSymlinksInPath().path
+        // "/", "/Users", "/Users/name", "/Volumes/Disk" and such.
+        guard path.split(separator: "/").count > 2, !protectedFolders.contains(path) else { return false }
+        return (try? folder.resourceValues(forKeys: [.isVolumeKey]).isVolume) != true
+    }
+
+    private static let protectedFolders: Set<String> = {
+        let manager = FileManager.default
+        let standard: [FileManager.SearchPathDirectory] = [
+            .desktopDirectory, .documentDirectory, .downloadsDirectory, .musicDirectory, .moviesDirectory,
+            .picturesDirectory, .sharedPublicDirectory, .libraryDirectory, .applicationDirectory,
+        ]
+        let urls = [manager.homeDirectoryForCurrentUser] + standard.flatMap { manager.urls(for: $0, in: .userDomainMask) }
+        return Set(urls.map { $0.standardizedFileURL.resolvingSymlinksInPath().path })
+    }()
+
     /// Removes those of `folders` that are empty, innermost first.
     static func removeEmptyFolders(_ folders: [URL]) {
         for folder in folders.reversed() {

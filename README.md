@@ -36,7 +36,8 @@ Lossless), Ogg Vorbis and Opus.
   toolbar or choose File → Rename Files from Tags… (⇧⌘R), with a pattern such
   as `%track% - %title%`. `/` in the pattern sorts files into folders, e.g.
   `%albumartist%/%album%/%track% - %title%`, inside each file's folder or a
-  folder you choose. A preview shows each new name. Files that would collide with an existing file, or with each
+  folder you choose (optionally removing the folders the files leave empty).
+  A preview shows each new name. Files that would collide with an existing file, or with each
   other, are skipped, and files missing a tag the pattern uses are flagged.
   Renames happen right away and can be undone with ⌘Z.
 - **Tags from file names:** the reverse of renaming. File → Tags from File
@@ -80,8 +81,9 @@ To install, drag `build/Taggart.app` into Applications.
 scripts/build-app.sh --release
 ```
 
-This makes a universal (Apple silicon + Intel) build and zips it as
-`build/Taggart-<version>.zip`, with the license files in
+This makes a universal (Apple silicon + Intel) build and packages it as
+`build/Taggart-<version>.zip` and as a disk image, `build/Taggart-<version>.dmg`,
+with an Applications shortcut to drag the app to. The license files are in
 `Taggart.app/Contents/Resources/Licenses`. The version comes from
 `CFBundleShortVersionString` in `Resources/Info.plist`; bump it (and
 `CFBundleVersion`) before a release.
@@ -98,8 +100,8 @@ xcrun notarytool store-credentials taggart --apple-id <Apple ID> --team-id <team
 scripts/build-app.sh --sign "Developer ID Application: Your Name (TEAMID)" --notarize taggart
 ```
 
-This signs with the hardened runtime, submits the zip to Apple's notary service,
-waits for approval, staples the ticket to the app and zips it again.
+This signs with the hardened runtime, has Apple's notary service check the zip
+and the disk image, and staples the tickets to the app and the disk image.
 
 `scripts/test.sh` wraps `swift test`, because with only the Command Line Tools
 installed SwiftPM doesn't find Swift Testing's macro plugin by itself. For the
