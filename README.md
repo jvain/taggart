@@ -60,6 +60,15 @@ Lossless), Ogg Vorbis, Opus, WAV, AIFF, WavPack, Monkey's Audio (APE) and WMA.
   selected files straight from the context menu (Format Tags With). One ⌘Z
   undoes it all; tag changes are saved with ⌘S, and files are renamed right
   away.
+- **Look up albums on MusicBrainz:** select an album's files and choose
+  File → Look Up on MusicBrainz… (⇧⌘L). Taggart searches by the files' album
+  and artist (or a pasted MusicBrainz release link), matches the files to the
+  chosen release's tracks by number, title and length (change any pairing
+  from its menu), and sets titles, artists, track and disc numbers, the date,
+  label and other release details, MusicBrainz IDs and the cover from the
+  Cover Art Archive. A Changes tab shows everything before it's applied; it's
+  undoable and saved with ⌘S like other edits. Tag names follow MusicBrainz
+  Picard's. No account is needed.
 - **Tags from file names:** the reverse of renaming. File → Tags from File
   Names… (⇧⌘T) reads tags from names with a pattern such as
   `%track% - %title%`; `/` reads folder names too (e.g.

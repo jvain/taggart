@@ -93,6 +93,10 @@ struct ContentView: View {
                 FormatTagsSheet(ids: request.ids)
                     .environment(controller)
             }
+            .sheet(item: $controller.musicBrainzRequest) { request in
+                MusicBrainzSheet(ids: request.ids)
+                    .environment(controller)
+            }
             .sheet(item: $controller.trackNumbersRequest) { request in
                 TrackNumbersSheet(ids: request.ids)
                     .environment(controller)

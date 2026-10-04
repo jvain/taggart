@@ -147,11 +147,17 @@ public enum ID3v2WriteVersion: Int, Sendable, CaseIterable, Identifiable {
 }
 
 public enum TagIOError: LocalizedError, Equatable {
+    /// Whether this is a download that found nothing at the address.
+    public var isNotFound: Bool {
+        if case .imageNotFound = self { true } else { false }
+    }
+
     case cannotOpen(URL, reason: String)
     case cannotWrite(URL, reason: String)
     case modifiedOnDisk(URL)
     case cannotRename(URL, reason: String)
     case cannotDownload(URL, reason: String)
+    case imageNotFound(URL)
     case artworkUnavailable(URL)
     case unsupportedImage
 
@@ -167,6 +173,8 @@ public enum TagIOError: LocalizedError, Equatable {
             "Couldn't rename “\(url.lastPathComponent)”. \(reason)"
         case let .cannotDownload(url, reason):
             "Couldn't get the image from \(url.host() ?? url.absoluteString). \(reason)"
+        case let .imageNotFound(url):
+            "There's no image at \(url.host() ?? url.absoluteString) (error 404)."
         case let .artworkUnavailable(url):
             "The existing artwork in “\(url.lastPathComponent)” could not be read back while saving."
         case .unsupportedImage:

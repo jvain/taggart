@@ -4,11 +4,6 @@ Ideas for future work, roughly in order of usefulness.
 
 ## Larger features
 
-- [ ] **Online album lookup:** search MusicBrainz (or Discogs) for an album and
-  fill in the tags of a whole set of files at once, with the cover from the
-  Cover Art Archive. Both are free and need no account; MusicBrainz asks for
-  at most one request per second and a descriptive User-Agent. The main work
-  is the screen that matches the database's tracks to the files.
 - [ ] **Acoustic fingerprinting (AcoustID):** identify files with no tags.
   Needs the Chromaprint library and an AcoustID API key.
 
@@ -24,6 +19,10 @@ Ideas for future work, roughly in order of usefulness.
 
 ## Done
 
+- [x] **MusicBrainz lookup:** search releases (or paste a link), match files
+  to tracks by number, title and length, and set Picard-style tags and the
+  Cover Art Archive cover. (Possible additions: Discogs, MusicBrainz genres,
+  looking up several albums at once.)
 - [x] **More from Format Tags:** lists of steps run in order, saved and
   loaded by name (and run from the context menu); case changes, replacing
   and space clean-up on any tag or the file name; Set a Tag from a pattern;

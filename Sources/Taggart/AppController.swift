@@ -16,6 +16,7 @@ final class AppController {
     var tagsFromNamesRequest: TagsFromNamesRequest?
     var formatTagsRequest: FormatTagsRequest?
     var trackNumbersRequest: TrackNumbersRequest?
+    var musicBrainzRequest: MusicBrainzRequest?
     /// Tags taken with Copy Tags, kept until the next copy (or quit).
     var copiedTags: CopiedTags?
     /// True while a cover is being downloaded from the web.
@@ -168,6 +169,17 @@ final class AppController {
                 messages: failures
             )
         }
+    }
+
+    // MARK: MusicBrainz
+
+    func showMusicBrainzSheet() {
+        guard !selection.isEmpty else { return }
+        musicBrainzRequest = MusicBrainzRequest(ids: orderedSelection)
+    }
+
+    func applyMusicBrainz(_ plan: FormatPlan) {
+        library.applyFormat(plan, actionName: "MusicBrainz Tags", undoManager: undoManager)
     }
 
     // MARK: Track numbers
@@ -331,6 +343,12 @@ struct TagsFromNamesRequest: Identifiable {
 }
 
 struct FormatTagsRequest: Identifiable {
+    let id = UUID()
+    /// In list order.
+    var ids: [AudioFileItem.ID]
+}
+
+struct MusicBrainzRequest: Identifiable {
     let id = UUID()
     /// In list order.
     var ids: [AudioFileItem.ID]

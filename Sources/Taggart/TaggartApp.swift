@@ -39,6 +39,9 @@ struct TaggartApp: App {
                 Button("Number Tracks…") { controller.showTrackNumbersSheet() }
                     .keyboardShortcut("n", modifiers: [.command, .shift])
                     .disabled(controller.selection.isEmpty || controller.library.isSaving)
+                Button("Look Up on MusicBrainz…") { controller.showMusicBrainzSheet() }
+                    .keyboardShortcut("l", modifiers: [.command, .shift])
+                    .disabled(controller.selection.isEmpty || controller.library.isSaving)
             }
             CommandGroup(after: .pasteboard) {
                 Divider()

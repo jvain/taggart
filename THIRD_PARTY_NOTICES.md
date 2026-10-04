@@ -20,3 +20,14 @@ links above. Taggart doesn't modify it.
 
 - Project: https://github.com/nemtrif/utfcpp
 - License: Boost Software License 1.0 (`Resources/Licenses/utfcpp-BSL-1.0.txt`)
+
+# Online data
+
+Looking up albums uses two free services; nothing is sent except the search
+(album and artist names, or a release ID).
+
+- **MusicBrainz** (https://musicbrainz.org): its music data is in the public
+  domain (CC0). Taggart identifies itself to it and makes at most one request
+  per second, as its API rules ask.
+- **Cover Art Archive** (https://coverartarchive.org): cover images uploaded
+  by MusicBrainz users. The images remain their copyright holders'.

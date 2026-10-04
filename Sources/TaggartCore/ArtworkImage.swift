@@ -73,6 +73,9 @@ public enum ArtworkImage {
         } catch {
             throw TagIOError.cannotDownload(url, reason: error.localizedDescription)
         }
+        if let http = response as? HTTPURLResponse, http.statusCode == 404 {
+            throw TagIOError.imageNotFound(url)
+        }
         if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
             throw TagIOError.cannotDownload(url, reason: "The server answered with error \(http.statusCode).")
         }

@@ -362,13 +362,20 @@ public final class Library {
     /// pending until saved, like other edits; renames happen right away.
     /// Returns an error message for each file that couldn't be renamed.
     @discardableResult
-    public func applyFormat(_ plan: FormatPlan, undoManager: UndoManager?) -> [String] {
+    public func applyFormat(_ plan: FormatPlan, actionName: String = "Format Tags", undoManager: UndoManager?) -> [String] {
         undoManager?.beginUndoGrouping()
         defer {
-            undoManager?.setActionName("Format Tags")
+            undoManager?.setActionName(actionName)
             undoManager?.endUndoGrouping()
         }
-        setEdited(plan.tags, actionName: "Format Tags", undoManager: undoManager)
+        for tags in plan.tags.values {
+            for artwork in tags.artwork {
+                if case let .new(data) = artwork.source {
+                    thumbnails.add(data, digest: artwork.digest)
+                }
+            }
+        }
+        setEdited(plan.tags, actionName: actionName, undoManager: undoManager)
         return rename(plan.renames, undoManager: undoManager)
     }
 

@@ -106,6 +106,10 @@ struct FileTable: View {
                     controller.selection = ids
                     controller.showTrackNumbersSheet()
                 }
+                Button("Look Up on MusicBrainz…") {
+                    controller.selection = ids
+                    controller.showMusicBrainzSheet()
+                }
                 Button("Revert") {
                     controller.selection = ids
                     controller.revertSelected()
