@@ -49,6 +49,8 @@ struct TaggartApp: App {
 struct SettingsView: View {
     @AppStorage(Preferences.id3v2VersionKey) private var id3v2Version = ID3v2WriteVersion.keep.rawValue
     @AppStorage(Preferences.keepModificationDatesKey) private var keepModificationDates = false
+    @AppStorage(Preferences.shrinkCoversKey) private var shrinkCovers = false
+    @AppStorage(Preferences.maxCoverSizeKey) private var maxCoverSize = Preferences.defaultMaxCoverSize
 
     var body: some View {
         Form {
@@ -61,6 +63,28 @@ struct SettingsView: View {
                 Text("ID3v2.3 is the most widely supported; ID3v2.4 supports UTF-8 and multiple values.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Section {
+                Toggle("Shrink large covers when setting them", isOn: $shrinkCovers)
+                HStack(spacing: 6) {
+                    Text("Maximum width or height:")
+                    TextField("Maximum size", value: $maxCoverSize, format: .number.grouping(.never))
+                        .labelsHidden()
+                        .multilineTextAlignment(.trailing)
+                        .frame(width: 64)
+                    Stepper("Maximum size", value: $maxCoverSize, in: Preferences.coverSizeRange, step: 64)
+                        .labelsHidden()
+                    Text("pixels")
+                }
+                .disabled(!shrinkCovers)
+                .onChange(of: maxCoverSize) {
+                    maxCoverSize = maxCoverSize.clamped(to: Preferences.coverSizeRange)
+                }
+                Text("Larger covers are scaled down to fit and saved as JPEG. Covers already in your files aren't changed.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             Section {
                 Toggle("Keep files' modification dates when saving", isOn: $keepModificationDates)

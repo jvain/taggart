@@ -25,7 +25,9 @@ Lossless), Ogg Vorbis and Opus.
   file. Images dragged from a web browser, and copied image addresses, are
   downloaded. The new cover replaces the front cover of every selected file and keeps
   other pictures (back cover, artist, …). Covers can also be removed or
-  exported. HEIC, TIFF, WebP and other formats are converted to JPEG.
+  exported. HEIC, TIFF, WebP and other formats are converted to JPEG. If you
+  turn it on in Settings, covers larger than a size limit (1024 pixels by
+  default) are scaled down to fit, as JPEG, when set.
 - **Rename files from tags:** select files and click the rename button in the
   toolbar or choose File → Rename Files from Tags… (⇧⌘R), with a pattern such
   as `%track% - %title%`. `/` in the pattern sorts files into folders, e.g.

@@ -129,7 +129,7 @@ struct ArtworkWell: View {
             _ = provider.loadObject(ofClass: URL.self) { url, _ in
                 guard let url else { return }
                 Task { @MainActor in
-                    controller.setArtwork(for: targets) { try ArtworkImage.artwork(contentsOf: url) }
+                    controller.setArtwork(for: targets) { try ArtworkImage.artwork(contentsOf: url, maxPixelSize: Preferences.coverSizeLimit) }
                 }
             }
             return true
@@ -138,7 +138,7 @@ struct ArtworkWell: View {
             _ = provider.loadDataRepresentation(for: type) { data, _ in
                 guard let data else { return }
                 Task { @MainActor in
-                    controller.setArtwork(for: targets) { try ArtworkImage.artwork(from: data) }
+                    controller.setArtwork(for: targets) { try ArtworkImage.artwork(from: data, maxPixelSize: Preferences.coverSizeLimit) }
                 }
             }
             return true

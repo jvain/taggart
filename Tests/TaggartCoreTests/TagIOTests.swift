@@ -448,6 +448,73 @@ struct ArtworkTests {
         await #expect(throws: TagIOError.self) { try await ArtworkImage.download(from: missing) }
     }
 
+    /// A red image of the given size as PNG; optionally the left half is transparent.
+    func pngImage(width: Int, height: Int, transparentLeftHalf: Bool = false) throws -> Data {
+        let space = try #require(CGColorSpace(name: CGColorSpace.sRGB))
+        let context = try #require(CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+                                             space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.setFillColor(CGColor(red: 1, green: 0, blue: 0, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        if transparentLeftHalf {
+            context.clear(CGRect(x: 0, y: 0, width: width / 2, height: height))
+        }
+        let data = NSMutableData()
+        let destination = try #require(CGImageDestinationCreateWithData(data, "public.png" as CFString, 1, nil))
+        CGImageDestinationAddImage(destination, try #require(context.makeImage()), nil)
+        #expect(CGImageDestinationFinalize(destination))
+        return data as Data
+    }
+
+    @Test func shrinksLargeCovers() throws {
+        let landscape = try ArtworkImage.artwork(from: pngImage(width: 2000, height: 1500), maxPixelSize: 1024)
+        #expect(landscape.mimeType == "image/jpeg")
+        #expect((landscape.width, landscape.height) == (1024, 768))
+        // The stored bytes really are that image.
+        guard case let .new(bytes) = landscape.source else { Issue.record("not new"); return }
+        #expect(ArtworkImage.metrics(of: bytes).width == 1024)
+        #expect(landscape.byteCount == bytes.count)
+
+        let portrait = try ArtworkImage.artwork(from: pngImage(width: 1000, height: 3000), maxPixelSize: 1024)
+        #expect(portrait.height == 1024)
+        #expect(abs(portrait.width - 341) <= 1)
+    }
+
+    @Test func keepsCoversWithinTheLimit() throws {
+        for (width, height) in [(800, 600), (1024, 1024)] {
+            let png = try pngImage(width: width, height: height)
+            let artwork = try ArtworkImage.artwork(from: png, maxPixelSize: 1024)
+            #expect(artwork.mimeType == "image/png")
+            #expect(artwork.digest == SHA256.hash(data: png))
+        }
+        // Without a limit nothing is shrunk.
+        let large = try ArtworkImage.artwork(from: pngImage(width: 2000, height: 1500))
+        #expect((large.width, large.mimeType) == (2000, "image/png"))
+    }
+
+    @Test func shrunkTransparentCoversGetAWhiteBackground() throws {
+        let artwork = try ArtworkImage.artwork(from: pngImage(width: 2000, height: 2000, transparentLeftHalf: true), maxPixelSize: 512)
+        guard case let .new(bytes) = artwork.source,
+              let source = CGImageSourceCreateWithData(bytes as CFData, nil),
+              let image = CGImageSourceCreateImageAtIndex(source, 0, nil)
+        else { Issue.record("no image"); return }
+        // Read back one pixel from the once-transparent half and one from the red half.
+        var pixels = [UInt8](repeating: 0, count: 4 * image.width * image.height)
+        let context = try #require(CGContext(data: &pixels, width: image.width, height: image.height, bitsPerComponent: 8,
+                                             bytesPerRow: 4 * image.width, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        func pixel(_ x: Int, _ y: Int) -> [UInt8] { Array(pixels[(4 * (y * image.width + x))..<(4 * (y * image.width + x) + 3)]) }
+        #expect(pixel(50, 256).allSatisfy { $0 > 240 })
+        #expect(pixel(450, 256)[0] > 200 && pixel(450, 256)[1] < 60)
+    }
+
+    @Test func shrinksDownloadedCovers() async throws {
+        let url = try fixture("blue.jpg").deletingLastPathComponent().appendingPathComponent("big.png")
+        try pngImage(width: 3000, height: 3000).write(to: url)
+        let artwork = try await ArtworkImage.download(from: url, maxPixelSize: 1024)
+        #expect((artwork.width, artwork.height, artwork.mimeType) == (1024, 1024, "image/jpeg"))
+    }
+
     @Test func convertsUncommonImageFormatsToJPEG() throws {
         let image = try #require(ArtworkImage.thumbnail(of: fixtureData("blue.jpg")))
         let tiff = NSMutableData()

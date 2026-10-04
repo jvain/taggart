@@ -7,9 +7,6 @@ Ideas for future work, roughly in order of usefulness.
 - [ ] **Tags from file names.** The reverse of rename: fill in tags from a
   pattern such as `%track% - %title%` applied to the file name, with the same
   kind of preview dialog.
-- [ ] **Shrink large covers.** An optional setting to resize covers above
-  e.g. 1000 px and convert them to JPEG when they're set. Some players and car
-  stereos struggle with huge embedded images.
 
 ## Smaller improvements
 
@@ -26,6 +23,9 @@ Ideas for future work, roughly in order of usefulness.
 
 ## Done
 
+- [x] **Shrink large covers:** an option in Settings (off by default) scales
+  covers wider or taller than a limit (1024 px by default) down to JPEG when
+  they're set.
 - [x] **All-tags view:** the All Tags tab lists, edits, adds and deletes every
   tag, across many files at once.
 - [x] **More formats:** M4A (AAC and Apple Lossless, also .m4b), Ogg Vorbis

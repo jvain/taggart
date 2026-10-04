@@ -8,8 +8,9 @@ import UniformTypeIdentifiers
 public enum ArtworkImage {
     /// Makes a new picture from image bytes. JPEG and PNG are embedded as is;
     /// other formats ImageIO can read (HEIC, TIFF, WebP, …) are converted to
-    /// JPEG, since players widely support only those two.
-    public static func artwork(from data: Data, type: PictureType = .frontCover) throws -> Artwork {
+    /// JPEG, since players widely support only those two. With `maxPixelSize`,
+    /// an image wider or taller than that is scaled down to fit, as a JPEG.
+    public static func artwork(from data: Data, type: PictureType = .frontCover, maxPixelSize: Int? = nil) throws -> Artwork {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil),
               CGImageSourceGetCount(source) > 0
         else {
@@ -17,7 +18,14 @@ public enum ArtworkImage {
         }
         var bytes = data
         var mimeType = mimeType(of: data)
-        if mimeType == nil {
+        let original = metrics(of: data)
+        if let maxPixelSize, max(original.width, original.height) > maxPixelSize {
+            guard let jpeg = shrunkJPEG(from: source, maxPixelSize: maxPixelSize) else {
+                throw TagIOError.unsupportedImage
+            }
+            bytes = jpeg
+            mimeType = "image/jpeg"
+        } else if mimeType == nil {
             guard let image = CGImageSourceCreateImageAtIndex(source, 0, nil),
                   let jpeg = jpegData(from: image)
             else {
@@ -39,13 +47,13 @@ public enum ArtworkImage {
         )
     }
 
-    public static func artwork(contentsOf url: URL, type: PictureType = .frontCover) throws -> Artwork {
-        try artwork(from: Data(contentsOf: url), type: type)
+    public static func artwork(contentsOf url: URL, type: PictureType = .frontCover, maxPixelSize: Int? = nil) throws -> Artwork {
+        try artwork(from: Data(contentsOf: url), type: type, maxPixelSize: maxPixelSize)
     }
 
     /// Downloads an image, e.g. one dragged from a web browser as a link.
     @concurrent
-    public static func download(from url: URL) async throws -> Artwork {
+    public static func download(from url: URL, maxPixelSize: Int? = nil) async throws -> Artwork {
         let data: Data
         let response: URLResponse
         do {
@@ -60,7 +68,7 @@ public enum ArtworkImage {
             throw TagIOError.cannotDownload(url, reason: "The image is larger than 50 MB.")
         }
         do {
-            return try artwork(from: data)
+            return try artwork(from: data, maxPixelSize: maxPixelSize)
         } catch {
             throw TagIOError.cannotDownload(url, reason: "It isn't an image Taggart can read.")
         }
@@ -109,7 +117,43 @@ public enum ArtworkImage {
         return (width, height, bitsPerComponent * components)
     }
 
+    /// The image scaled down so neither side exceeds `maxPixelSize`, as JPEG.
+    /// ImageIO's thumbnail path downsamples with good quality and applies any
+    /// EXIF orientation, so the result is upright.
+    private static func shrunkJPEG(from source: CGImageSource, maxPixelSize: Int) -> Data? {
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
+        ]
+        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
+        return jpegData(from: image)
+    }
+
+    /// JPEG has no transparency: an image with an alpha channel is drawn onto
+    /// white first (otherwise transparent areas would turn black).
+    static func opaque(_ image: CGImage) -> CGImage {
+        switch image.alphaInfo {
+        case .none, .noneSkipFirst, .noneSkipLast:
+            return image
+        default:
+            break
+        }
+        guard let space = CGColorSpace(name: CGColorSpace.sRGB),
+              let context = CGContext(data: nil, width: image.width, height: image.height, bitsPerComponent: 8,
+                                      bytesPerRow: 0, space: space, bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)
+        else {
+            return image
+        }
+        let rect = CGRect(x: 0, y: 0, width: image.width, height: image.height)
+        context.setFillColor(CGColor(gray: 1, alpha: 1))
+        context.fill(rect)
+        context.draw(image, in: rect)
+        return context.makeImage() ?? image
+    }
+
     private static func jpegData(from image: CGImage) -> Data? {
+        let image = opaque(image)
         let data = NSMutableData()
         guard let destination = CGImageDestinationCreateWithData(data, UTType.jpeg.identifier as CFString, 1, nil)
         else {

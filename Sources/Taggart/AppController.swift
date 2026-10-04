@@ -117,14 +117,14 @@ final class AppController {
         panel.allowedContentTypes = [.image]
         panel.message = "Choose a cover image."
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        setArtwork(for: ids) { try ArtworkImage.artwork(contentsOf: url) }
+        setArtwork(for: ids) { try ArtworkImage.artwork(contentsOf: url, maxPixelSize: Preferences.coverSizeLimit) }
     }
 
     /// Pastes an image, an image file, or a copied image address ("Copy Image
     /// Address" in a browser), which is downloaded.
     func pasteArtwork(for ids: Set<AudioFileItem.ID>) {
         if let data = Pasteboard.imageData() {
-            setArtwork(for: ids) { try ArtworkImage.artwork(from: data) }
+            setArtwork(for: ids) { try ArtworkImage.artwork(from: data, maxPixelSize: Preferences.coverSizeLimit) }
         } else if let url = Pasteboard.webURL() {
             downloadArtwork(from: url, for: ids)
         } else {
@@ -139,7 +139,7 @@ final class AppController {
         Task {
             defer { isDownloadingArtwork = false }
             do {
-                apply(.setFrontCover(try await ArtworkImage.download(from: url)), to: ids)
+                apply(.setFrontCover(try await ArtworkImage.download(from: url, maxPixelSize: Preferences.coverSizeLimit)), to: ids)
             } catch {
                 alert = AppAlert(title: "The image couldn't be downloaded", messages: [error.localizedDescription])
             }
@@ -231,6 +231,20 @@ struct AppAlert: Identifiable {
 enum Preferences {
     static let id3v2VersionKey = "id3v2Version"
     static let keepModificationDatesKey = "keepModificationDates"
+    static let shrinkCoversKey = "shrinkCovers"
+    static let maxCoverSizeKey = "maxCoverSize"
+    static let defaultMaxCoverSize = 1024
+    static let coverSizeRange = 64...10_000
+
+    /// The largest width or height for a newly set cover, or nil to keep
+    /// covers as they are. Shrinking is off by default, so covers only change
+    /// when the user has asked for it.
+    static var coverSizeLimit: Int? {
+        let defaults = UserDefaults.standard
+        guard defaults.bool(forKey: shrinkCoversKey) else { return nil }
+        let size = defaults.integer(forKey: maxCoverSizeKey)
+        return size > 0 ? size.clamped(to: coverSizeRange) : defaultMaxCoverSize
+    }
 
     static var keepModificationDates: Bool {
         UserDefaults.standard.bool(forKey: keepModificationDatesKey)
@@ -265,5 +279,11 @@ enum Pasteboard {
 
     static func isWebURL(_ url: URL) -> Bool {
         ["http", "https"].contains(url.scheme?.lowercased() ?? "") && url.host() != nil
+    }
+}
+
+extension Comparable {
+    func clamped(to range: ClosedRange<Self>) -> Self {
+        min(max(self, range.lowerBound), range.upperBound)
     }
 }
