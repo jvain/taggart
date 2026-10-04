@@ -16,6 +16,12 @@ None left; see Done below.
 
 ## Done
 
+- [x] **Fast sorting for big collections:** the sorted order is cached and
+  computed with each file's values read once; editing doesn't re-sort (click
+  a column header to sort again). With 20 000 files, actions on a sorted list
+  went from about 1 s to about 0.1 s.
+- [x] **Optional in-place saving** (Settings, off by default) for external
+  drives and network shares, where the safety copy is a full copy.
 - [x] **Remove folders left empty** after renaming files into new folders: an
   option in the rename dialog (off by default). Protected folders (home,
   Music, Downloads, …) are never removed; undo restores the folders.

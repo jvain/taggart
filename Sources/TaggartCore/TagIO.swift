@@ -62,6 +62,9 @@ public enum TagIO {
     ///
     /// The tags are written to a clone of the file (instant on APFS), which then
     /// replaces the original, so a failure part-way can't damage the original.
+    /// On other file systems (exFAT drives, network shares) the clone is a full
+    /// copy; `inPlace` skips it and writes into the file itself: much faster
+    /// there, but an interrupted write can damage the file.
     /// With `keepModificationDate`, the file keeps its modification date.
     public static func write(
         _ edited: TagSnapshot,
@@ -69,7 +72,8 @@ public enum TagIO {
         to url: URL,
         expectedModificationDate: Date?,
         id3v2Version: ID3v2WriteVersion = .keep,
-        keepModificationDate: Bool = false
+        keepModificationDate: Bool = false,
+        inPlace: Bool = false
     ) throws {
         let fieldsChanged = edited.fields != original.fields
         let artworkChanged = edited.artwork != original.artwork
@@ -78,6 +82,15 @@ public enum TagIO {
         let originalModificationDate = modificationDate(of: url)
         if let expectedModificationDate, originalModificationDate != expectedModificationDate {
             throw TagIOError.modifiedOnDisk(url)
+        }
+
+        if inPlace {
+            try applyTags(edited, fields: fieldsChanged, artwork: artworkChanged, to: url, originalURL: url,
+                          id3v2Version: id3v2Version)
+            if keepModificationDate, let originalModificationDate {
+                try FileManager.default.setAttributes([.modificationDate: originalModificationDate], ofItemAtPath: url.path)
+            }
+            return
         }
 
         let temporaryURL = url.deletingLastPathComponent()

@@ -52,6 +52,7 @@ struct TaggartApp: App {
 struct SettingsView: View {
     @AppStorage(Preferences.id3v2VersionKey) private var id3v2Version = ID3v2WriteVersion.keep.rawValue
     @AppStorage(Preferences.keepModificationDatesKey) private var keepModificationDates = false
+    @AppStorage(Preferences.writeTagsInPlaceKey) private var writeTagsInPlace = false
     @AppStorage(Preferences.shrinkCoversKey) private var shrinkCovers = false
     @AppStorage(Preferences.maxCoverSizeKey) private var maxCoverSize = Preferences.defaultMaxCoverSize
 
@@ -85,6 +86,13 @@ struct SettingsView: View {
                     maxCoverSize = maxCoverSize.clamped(to: Preferences.coverSizeRange)
                 }
                 Text("Larger covers are scaled down to fit and saved as JPEG. Covers already in your files aren't changed.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Section {
+                Toggle("Write tags directly into files", isOn: $writeTagsInPlace)
+                Text("Speeds up saving files on external drives and network shares. Normally each file is saved to a copy that then replaces it, so an interrupted save can't damage the file. On your Mac's own disk that copy is instant, but on other drives the whole file is copied. Writing directly skips the copy, but a save that's interrupted, for example by unplugging the drive, can damage the file.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

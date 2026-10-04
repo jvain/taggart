@@ -8,9 +8,11 @@ struct FileTable: View {
     @ViewState private var sortOrder: [KeyPathComparator<AudioFileItem>] = []
     @SceneStorage("FileTableColumns") private var columns = TableColumnCustomization<AudioFileItem>()
     @ViewState private var tableReference = TableReference()
+    @ViewState private var sortedRows = SortedRows()
 
     var body: some View {
-        let rows = sortedItems
+        // Sorted only when the files or the sort change (see SortedRows).
+        let rows = sortedRows.rows(of: items, sortOrder: sortOrder)
         Table(rows, selection: $selection, sortOrder: $sortOrder, columnCustomization: $columns) {
             TableColumn("", value: \AudioFileItem.dirtySortKey) { item in
                 StatusIcon(item: item)
@@ -110,10 +112,6 @@ struct FileTable: View {
             return .handled
         }
         .background(FitColumnsOnAppear(reference: tableReference))
-    }
-
-    private var sortedItems: [AudioFileItem] {
-        sortOrder.isEmpty ? items : items.sorted(using: sortOrder)
     }
 
     private func cell(_ item: AudioFileItem, _ field: LogicalField, _ rows: [AudioFileItem]) -> some View {

@@ -493,6 +493,47 @@ struct LibraryTests {
         return (library, library.items.map(\.id), root, old)
     }
 
+    @Test func sortsLikeKeyPathComparators() async throws {
+        let (library, ids, _) = try await loadedLibrary()
+        library.apply(.setField(.title, "Track 10"), to: [ids[0]], undoManager: nil)
+        library.apply(.setField(.title, "track 2"), to: [ids[1]], undoManager: nil)
+        library.apply(.setField(.title, "Äbc"), to: [ids[2]], undoManager: nil)
+        let items = library.items
+        let orders: [[KeyPathComparator<AudioFileItem>]] = [
+            [KeyPathComparator(\.title)],
+            [KeyPathComparator(\.title, order: .reverse)],
+            [KeyPathComparator(\.trackSortKey)],
+            [KeyPathComparator(\.duration, order: .reverse), KeyPathComparator(\.fileName)],
+            [KeyPathComparator(\.artworkSortKey), KeyPathComparator(\.album)],
+        ]
+        for order in orders {
+            #expect(SortedRows.sorted(items, by: order).map(\.id) == items.sorted(using: order).map(\.id))
+        }
+        // Numbers in text sort numerically and case is ignored: "track 2" before "Track 10".
+        #expect(SortedRows.sorted(items, by: [KeyPathComparator(\.title)]).map(\.title) == ["Äbc", "track 2", "Track 10"])
+    }
+
+    @Test func recomputesTheOrderOnlyWhenNeeded() async throws {
+        let (library, ids, _) = try await loadedLibrary()
+        let cache = SortedRows()
+        let order = [KeyPathComparator(\AudioFileItem.title)]
+        let before = cache.rows(of: library.items, sortOrder: order)
+        _ = cache.rows(of: library.items, sortOrder: order)
+        #expect(cache.computations == 1)
+
+        // Editing tags keeps the order (rows don't jump while editing)…
+        library.apply(.setField(.title, "AAA"), to: [ids[2]], undoManager: nil)
+        #expect(cache.rows(of: library.items, sortOrder: order).map(\.id) == before.map(\.id))
+        #expect(cache.computations == 1)
+
+        // …until the sort is chosen again (a header click), which uses the new values.
+        let resorted = cache.rows(of: library.items, sortOrder: [KeyPathComparator(\.title, order: .reverse)])
+        #expect(resorted.last?.id == ids[2])
+        // A different set of files (e.g. filtered) sorts again too.
+        _ = cache.rows(of: Array(library.items.prefix(2)), sortOrder: order)
+        #expect(cache.computations == 3)
+    }
+
     @Test func removesFoldersLeftEmpty() async throws {
         // Finder's .DS_Store doesn't keep a folder.
         let (library, ids, root, old) = try await filesInOldAlbum(extra: ".DS_Store")

@@ -52,7 +52,10 @@ Lossless), Ogg Vorbis and Opus.
   save with ⌘S. **Revert Selected** re-reads
   files from disk.
 - **Safe saving:** each file is written to an instant APFS clone, which then
-  replaces the original, so a failed save can't damage a file. Taggart won't
+  replaces the original, so a failed save can't damage a file. On external
+  drives and network shares that clone is a full copy; Settings can switch to
+  writing tags directly into the files there, which is much faster but less
+  safe if a save is interrupted. Taggart won't
   overwrite a file that another app changed after it was loaded.
 - **Leaves everything else alone:** tags you don't edit (MusicBrainz IDs,
   ReplayGain, …), the audio data, and an existing ID3v1 tag are preserved.

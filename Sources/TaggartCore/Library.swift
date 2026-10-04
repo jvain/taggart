@@ -68,6 +68,9 @@ public final class Library {
     public var id3v2Version: ID3v2WriteVersion = .keep
     /// Whether saving keeps the files' modification dates.
     public var keepModificationDates = false
+    /// Whether saving writes into the files directly, skipping the safety copy
+    /// (faster on external drives and network shares; see `TagIO.write`).
+    public var writeInPlace = false
     public let thumbnails = ThumbnailCache()
 
     @ObservationIgnored private var itemsByID: [AudioFileItem.ID: AudioFileItem] = [:]
@@ -244,7 +247,8 @@ public final class Library {
         isSaving = true
         defer { isSaving = false }
 
-        let options = SaveOptions(id3v2Version: id3v2Version, keepModificationDate: keepModificationDates)
+        let options = SaveOptions(id3v2Version: id3v2Version, keepModificationDate: keepModificationDates,
+                                  inPlace: writeInPlace)
         let thumbnails = thumbnails
         let results = await withTaskGroup(of: (Int, Result<LoadedFile, Error>).self) { group in
             for (index, job) in jobs.enumerated() {
@@ -286,6 +290,7 @@ public final class Library {
     private struct SaveOptions: Sendable {
         var id3v2Version: ID3v2WriteVersion
         var keepModificationDate: Bool
+        var inPlace: Bool
     }
 
     @concurrent
@@ -301,7 +306,8 @@ public final class Library {
                 to: job.url,
                 expectedModificationDate: job.modificationDate,
                 id3v2Version: options.id3v2Version,
-                keepModificationDate: options.keepModificationDate
+                keepModificationDate: options.keepModificationDate,
+                inPlace: options.inPlace
             )
             return try TagIO.read(job.url, thumbnails: thumbnails)
         }

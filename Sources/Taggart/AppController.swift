@@ -86,6 +86,7 @@ final class AppController {
     func save() async -> Bool {
         library.id3v2Version = Preferences.id3v2Version
         library.keepModificationDates = Preferences.keepModificationDates
+        library.writeInPlace = Preferences.writeTagsInPlace
         let failures = await library.save(undoManager: undoManager)
         if !failures.isEmpty {
             alert = AppAlert(
@@ -250,6 +251,7 @@ struct AppAlert: Identifiable {
 enum Preferences {
     static let id3v2VersionKey = "id3v2Version"
     static let keepModificationDatesKey = "keepModificationDates"
+    static let writeTagsInPlaceKey = "writeTagsInPlace"
     static let shrinkCoversKey = "shrinkCovers"
     static let maxCoverSizeKey = "maxCoverSize"
     static let defaultMaxCoverSize = 1024
@@ -263,6 +265,11 @@ enum Preferences {
         guard defaults.bool(forKey: shrinkCoversKey) else { return nil }
         let size = defaults.integer(forKey: maxCoverSizeKey)
         return size > 0 ? size.clamped(to: coverSizeRange) : defaultMaxCoverSize
+    }
+
+    /// Off by default: the safe save (via a copy) is the default.
+    static var writeTagsInPlace: Bool {
+        UserDefaults.standard.bool(forKey: writeTagsInPlaceKey)
     }
 
     static var keepModificationDates: Bool {

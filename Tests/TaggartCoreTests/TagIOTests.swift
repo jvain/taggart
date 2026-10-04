@@ -307,6 +307,54 @@ struct WritingTests {
         #expect(try TagIO.read(url).snapshot.value(of: .title) == "New")
     }
 
+    /// The file's identity on disk: replacing it with a copy changes this.
+    func fileNumber(_ url: URL) throws -> Int {
+        try #require(FileManager.default.attributesOfItem(atPath: url.path)[.systemFileNumber] as? Int)
+    }
+
+    @Test(arguments: files)
+    func writesInPlace(_ name: String) throws {
+        let url = try fixture(name)
+        let identity = try fileNumber(url)
+        let audio = try audioDigest(of: url)
+        let loaded = try TagIO.read(url)
+        var edited = loaded.snapshot
+        edited.set(.title, to: "In Place", format: loaded.info.format)
+        let cover = try newArtwork()
+        edited = edited.applying(.setFrontCover(cover), format: loaded.info.format)
+        try TagIO.write(edited, original: loaded.snapshot, to: url, expectedModificationDate: loaded.modificationDate, inPlace: true)
+
+        // Same file (no replacement copy), new tags, same audio.
+        #expect(try fileNumber(url) == identity)
+        let reloaded = try TagIO.read(url)
+        #expect(reloaded.snapshot.value(of: .title) == "In Place")
+        #expect(reloaded.snapshot.primaryArtwork?.digest == cover.digest)
+        #expect(try audioDigest(of: url) == audio)
+    }
+
+    @Test func safeWritesReplaceTheFile() throws {
+        let url = try fixture("basic.flac")
+        let identity = try fileNumber(url)
+        try edit(url) { tags, format in tags.set(.title, to: "Safe", format: format) }
+        #expect(try fileNumber(url) != identity)
+    }
+
+    @Test func writesInPlaceKeepingTheDate() throws {
+        let url = try fixture("basic.mp3")
+        let old = Date(timeIntervalSince1970: 1_000_000_000)
+        try FileManager.default.setAttributes([.modificationDate: old], ofItemAtPath: url.path)
+        let loaded = try TagIO.read(url)
+        var edited = loaded.snapshot
+        edited.set(.title, to: "New", format: .mp3)
+        try TagIO.write(edited, original: loaded.snapshot, to: url, expectedModificationDate: loaded.modificationDate,
+                        keepModificationDate: true, inPlace: true)
+        #expect(TagIO.modificationDate(of: url) == old)
+        // An external change is still detected.
+        #expect(throws: TagIOError.modifiedOnDisk(url)) {
+            try TagIO.write(edited, original: loaded.snapshot, to: url, expectedModificationDate: Date(), inPlace: true)
+        }
+    }
+
     @Test func unchangedSnapshotDoesNotTouchFile() throws {
         let url = try fixture("basic.mp3")
         let before = try Data(contentsOf: url)
