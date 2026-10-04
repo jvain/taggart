@@ -9,6 +9,10 @@ Lossless), Ogg Vorbis and Opus.
 - **Load many files:** open files or whole folders (⌘O), drag them onto the
   window or the Dock icon, or use Finder's "Open With". Folders are scanned
   recursively.
+- **Edit in the list:** double-click a Title, Artist, Album, Album Artist, #,
+  Disc, Year or Genre cell (or press Return to edit the selected row's title).
+  Return saves the cell and moves to the same column on the next row; Escape
+  cancels.
 - **Edit many files at once:** select any number of files and change Title,
   Artist, Album, Album Artist, Track/Disc number and total, Year, Genre,
   Composer or Comment. A field where the files differ shows *Multiple values*

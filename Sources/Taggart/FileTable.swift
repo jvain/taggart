@@ -7,9 +7,11 @@ struct FileTable: View {
     @Environment(AppController.self) private var controller
     @ViewState private var sortOrder: [KeyPathComparator<AudioFileItem>] = []
     @SceneStorage("FileTableColumns") private var columns = TableColumnCustomization<AudioFileItem>()
+    @ViewState private var tableReference = TableReference()
 
     var body: some View {
-        Table(sortedItems, selection: $selection, sortOrder: $sortOrder, columnCustomization: $columns) {
+        let rows = sortedItems
+        Table(rows, selection: $selection, sortOrder: $sortOrder, columnCustomization: $columns) {
             TableColumn("", value: \AudioFileItem.dirtySortKey) { item in
                 StatusIcon(item: item)
             }
@@ -23,36 +25,32 @@ struct FileTable: View {
             .width(min: 100, ideal: 150)
             .customizationID("file")
 
-            TableColumn("Title", value: \AudioFileItem.title)
+            TableColumn("Title", value: \AudioFileItem.title) { cell($0, .title, rows) }
                 .width(min: 80, ideal: 140)
                 .customizationID("title")
-            TableColumn("Artist", value: \AudioFileItem.artist)
+            TableColumn("Artist", value: \AudioFileItem.artist) { cell($0, .artist, rows) }
                 .width(min: 60, ideal: 110)
                 .customizationID("artist")
-            TableColumn("Album", value: \AudioFileItem.album)
+            TableColumn("Album", value: \AudioFileItem.album) { cell($0, .album, rows) }
                 .width(min: 60, ideal: 110)
                 .customizationID("album")
 
             Group {
-                TableColumn("Album Artist", value: \AudioFileItem.albumArtist) { Text($0.albumArtist) }
+                TableColumn("Album Artist", value: \AudioFileItem.albumArtist) { cell($0, .albumArtist, rows) }
                     .width(min: 80, ideal: 130)
                     .customizationID("albumArtist")
                     .defaultVisibility(.hidden)
-                TableColumn("#", value: \AudioFileItem.trackSortKey) { item in
-                    Text(item.value(.trackNumber)).monospacedDigit()
-                }
+                TableColumn("#", value: \AudioFileItem.trackSortKey) { cell($0, .trackNumber, rows) }
                 .width(min: 28, ideal: 34)
                 .customizationID("track")
-                TableColumn("Disc", value: \AudioFileItem.discSortKey) { item in
-                    Text(item.value(.discNumber)).monospacedDigit()
-                }
+                TableColumn("Disc", value: \AudioFileItem.discSortKey) { cell($0, .discNumber, rows) }
                 .width(min: 28, ideal: 34)
                 .customizationID("disc")
                 .defaultVisibility(.hidden)
-                TableColumn("Year", value: \AudioFileItem.year) { Text($0.year) }
+                TableColumn("Year", value: \AudioFileItem.year) { cell($0, .date, rows) }
                     .width(min: 36, ideal: 44)
                     .customizationID("year")
-                TableColumn("Genre", value: \AudioFileItem.genre) { Text($0.genre) }
+                TableColumn("Genre", value: \AudioFileItem.genre) { cell($0, .genre, rows) }
                     .width(min: 50, ideal: 80)
                     .customizationID("genre")
             }
@@ -98,13 +96,91 @@ struct FileTable: View {
                     controller.removeSelected()
                 }
             }
+        } primaryAction: { _ in
+            // Double-click: edit the clicked cell, if its column is a tag.
+            beginEditingClickedCell(rows)
         }
         .onDeleteCommand { controller.removeSelected() }
-        .background(FitColumnsOnAppear())
+        // Return edits the title of the first selected row.
+        .onKeyPress(.return) {
+            guard controller.editingCell == nil, !controller.library.isSaving,
+                  let first = rows.first(where: { selection.contains($0.id) })
+            else { return .ignored }
+            controller.editingCell = EditingCell(id: first.id, field: .title)
+            return .handled
+        }
+        .background(FitColumnsOnAppear(reference: tableReference))
     }
 
     private var sortedItems: [AudioFileItem] {
         sortOrder.isEmpty ? items : items.sorted(using: sortOrder)
+    }
+
+    private func cell(_ item: AudioFileItem, _ field: LogicalField, _ rows: [AudioFileItem]) -> some View {
+        let cell = EditingCell(id: item.id, field: field)
+        return EditableCell(
+            item: item,
+            field: field,
+            isEditing: controller.editingCell == cell,
+            commit: { text, end in commit(text, in: cell, end: end, rows: rows) },
+            cancel: {
+                if controller.editingCell == cell {
+                    controller.editingCell = nil
+                    focusTable()
+                }
+            }
+        )
+    }
+
+    /// The editable columns, by header title.
+    private static let editableFields: [String: LogicalField] = [
+        "Title": .title, "Artist": .artist, "Album": .album, "Album Artist": .albumArtist,
+        "#": .trackNumber, "Disc": .discNumber, "Year": .date, "Genre": .genre,
+    ]
+
+    /// Starts editing the cell that was double-clicked. SwiftUI reports only
+    /// the rows, so the column comes from the underlying NSTableView.
+    private func beginEditingClickedCell(_ rows: [AudioFileItem]) {
+        guard !controller.library.isSaving, let table = tableReference.table else { return }
+        let row = table.clickedRow
+        let column = table.clickedColumn
+        guard rows.indices.contains(row), table.tableColumns.indices.contains(column),
+              let field = Self.editableFields[table.tableColumns[column].title]
+        else { return }
+        selection = [rows[row].id]
+        controller.editingCell = EditingCell(id: rows[row].id, field: field)
+    }
+
+    /// Saves a cell edit (as one undoable step). After Return, editing moves to
+    /// the same column on the next row, which gets selected and scrolled to;
+    /// on the last row, editing just ends.
+    private func commit(_ text: String, in cell: EditingCell, end: CellEditEnd, rows: [AudioFileItem]) {
+        if let item = controller.library.item(cell.id),
+           text.trimmingCharacters(in: .whitespacesAndNewlines) != item.value(cell.field) {
+            controller.apply(.setField(cell.field, text), to: [cell.id])
+        }
+        // Another cell may already be being edited (it was double-clicked).
+        guard controller.editingCell == cell else { return }
+        guard end == .enter else {
+            controller.editingCell = nil
+            return
+        }
+        if let index = rows.firstIndex(where: { $0.id == cell.id }), index + 1 < rows.count {
+            let next = rows[index + 1]
+            selection = [next.id]
+            controller.editingCell = EditingCell(id: next.id, field: cell.field)
+            tableReference.table?.scrollRowToVisible(index + 1)
+        } else {
+            controller.editingCell = nil
+            focusTable()
+        }
+    }
+
+    /// Gives keyboard focus back to the list, so arrow keys work again.
+    private func focusTable() {
+        if let table = tableReference.table {
+            table.window?.makeFirstResponder(table)
+        }
     }
 }
 
@@ -149,14 +225,26 @@ private struct CoverThumbnail: View {
 /// scrolling sideways until the next resize. SwiftUI has no API for this, so
 /// this asks the nearest NSTableView directly; if there is none, it does nothing.
 private struct FitColumnsOnAppear: NSViewRepresentable {
+    let reference: TableReference
+
     func makeNSView(context: Context) -> FittingView {
-        FittingView()
+        FittingView(reference: reference)
     }
 
     func updateNSView(_ view: FittingView, context: Context) {}
 
     final class FittingView: NSView {
         private var hasFitted = false
+        private let reference: TableReference
+
+        init(reference: TableReference) {
+            self.reference = reference
+            super.init(frame: .zero)
+        }
+
+        required init?(coder: NSCoder) {
+            fatalError("not used")
+        }
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
@@ -173,7 +261,9 @@ private struct FitColumnsOnAppear: NSViewRepresentable {
             hasFitted = true
             // After the current layout pass, once the table has its size.
             DispatchQueue.main.async { [weak self] in
-                self?.nearestTable()?.sizeToFit()
+                guard let self, let table = nearestTable() else { return }
+                reference.table = table
+                table.sizeToFit()
             }
         }
 
@@ -202,4 +292,10 @@ private struct FitColumnsOnAppear: NSViewRepresentable {
             return nil
         }
     }
+}
+
+/// The NSTableView under the SwiftUI table, once found: used to scroll to the
+/// row being edited and to give the list keyboard focus back.
+final class TableReference {
+    weak var table: NSTableView?
 }

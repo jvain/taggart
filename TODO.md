@@ -21,6 +21,8 @@ None left; see Done below.
 
 ## Done
 
+- [x] **Edit in the list:** tag cells are editable in place; Return moves to
+  the same column on the next row.
 - [x] **Tags from file names:** File → Tags from File Names… reads tags from
   names (and folder names) with a pattern, with a preview.
 - [x] **Shrink large covers:** an option in Settings (off by default) scales

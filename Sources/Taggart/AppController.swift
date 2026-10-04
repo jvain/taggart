@@ -11,6 +11,8 @@ final class AppController {
     var selection = Set<AudioFileItem.ID>()
     var alert: AppAlert?
     var renameRequest: RenameRequest?
+    /// The file list cell being edited in place, if any.
+    var editingCell: EditingCell?
     var tagsFromNamesRequest: TagsFromNamesRequest?
     /// True while a cover is being downloaded from the web.
     var isDownloadingArtwork = false
