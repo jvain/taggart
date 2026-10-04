@@ -8,11 +8,10 @@ struct FileTable: View {
     @ViewState private var sortOrder: [KeyPathComparator<AudioFileItem>] = []
     @SceneStorage("FileTableColumns") private var columns = TableColumnCustomization<AudioFileItem>()
     @ViewState private var tableReference = TableReference()
-    @ViewState private var sortedRows = SortedRows()
 
     var body: some View {
         // Sorted only when the files or the sort change (see SortedRows).
-        let rows = sortedRows.rows(of: items, sortOrder: sortOrder)
+        let rows = controller.sortedRows.rows(of: items, sortOrder: sortOrder)
         Table(rows, selection: $selection, sortOrder: $sortOrder, columnCustomization: $columns) {
             TableColumn("", value: \AudioFileItem.dirtySortKey) { item in
                 StatusIcon(item: item)
@@ -92,10 +91,24 @@ struct FileTable: View {
                     controller.selection = ids
                     controller.showQuickActionsSheet()
                 }
+                Button("Number Tracks…") {
+                    controller.selection = ids
+                    controller.showTrackNumbersSheet()
+                }
                 Button("Revert") {
                     controller.selection = ids
                     controller.revertSelected()
                 }
+                Divider()
+                Button("Copy Tags") {
+                    controller.selection = ids
+                    controller.copyTags()
+                }
+                Button("Paste Tags") {
+                    controller.selection = ids
+                    controller.pasteTags()
+                }
+                .disabled(controller.copiedTags == nil || controller.library.isSaving)
                 Divider()
                 Button("Remove from List") {
                     controller.selection = ids

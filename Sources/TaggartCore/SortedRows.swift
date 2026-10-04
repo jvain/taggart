@@ -24,6 +24,9 @@ public final class SortedRows {
 
     public init() {}
 
+    /// The rows as last returned by `rows(of:sortOrder:)`: the list as shown.
+    public var current: [AudioFileItem] { cached }
+
     public func rows(of items: [AudioFileItem], sortOrder: [KeyPathComparator<AudioFileItem>]) -> [AudioFileItem] {
         let key = Key(ids: items.map(\.id), sortOrder: sortOrder)
         if key == self.key {

@@ -15,6 +15,9 @@ final class AppController {
     var editingCell: EditingCell?
     var tagsFromNamesRequest: TagsFromNamesRequest?
     var quickActionsRequest: QuickActionsRequest?
+    var trackNumbersRequest: TrackNumbersRequest?
+    /// Tags taken with Copy Tags, kept until the next copy (or quit).
+    var copiedTags: CopiedTags?
     /// True while a cover is being downloaded from the web.
     var isDownloadingArtwork = false
 
@@ -25,7 +28,21 @@ final class AppController {
     /// The file types the Open panel offers, from the supported extensions.
     static let audioTypes: [UTType] = Array(Set(FileScanner.supportedExtensions.compactMap { UTType(filenameExtension: $0) }))
 
+    /// The list's rows in their displayed order, shared with the file table.
+    let sortedRows = SortedRows()
+
     var selectedItems: [AudioFileItem] { library.items(selection) }
+
+    /// The selected files in the order the list shows them.
+    var orderedSelection: [AudioFileItem.ID] {
+        var ordered: [AudioFileItem.ID] = sortedRows.current.compactMap { selection.contains($0.id) ? $0.id : nil }
+        if ordered.count < selection.count {
+            // Not shown yet: after the shown ones, in the order they were added.
+            let shown = Set(ordered)
+            ordered += library.items(selection).map(\.id).filter { !shown.contains($0) }
+        }
+        return ordered
+    }
 
     // MARK: Files
 
@@ -135,6 +152,49 @@ final class AppController {
 
     func applyQuickAction(_ action: QuickAction, fields: [LogicalField], to ids: Set<AudioFileItem.ID>) {
         library.applyQuickAction(action, fields: fields, to: ids, undoManager: undoManager)
+    }
+
+    // MARK: Track numbers
+
+    func showTrackNumbersSheet() {
+        guard !selection.isEmpty else { return }
+        trackNumbersRequest = TrackNumbersRequest(ids: orderedSelection)
+    }
+
+    func applyTrackNumbers(_ ids: [AudioFileItem.ID], numbering: TrackNumbering) {
+        library.applyTrackNumbers(ids, numbering: numbering, undoManager: undoManager)
+    }
+
+    // MARK: Copying tags
+
+    func copyTags() {
+        let ids = orderedSelection
+        guard !ids.isEmpty else { return }
+        // Cleared first, so a quick paste can't use the previous copy.
+        copiedTags = nil
+        Task {
+            do {
+                copiedTags = try await library.copyTags(ids)
+            } catch {
+                alert = AppAlert(title: "The tags couldn't be copied", messages: [error.localizedDescription])
+            }
+        }
+    }
+
+    /// Pastes copied tags onto the selected files: one file's tags onto all
+    /// of them, or several files' tags onto as many files, in list order.
+    func pasteTags() {
+        guard let copiedTags else { return }
+        let ids = orderedSelection
+        guard copiedTags.canPaste(onto: ids.count) else {
+            let count = copiedTags.files.count
+            alert = AppAlert(
+                title: "Select \(count) files to paste the tags onto",
+                messages: ["The tags were copied from \(count) files. They're pasted in list order, the first file's tags onto the first selected file and so on. To paste the same tags onto any number of files, copy them from one file."]
+            )
+            return
+        }
+        library.pasteTags(copiedTags, to: ids, undoManager: undoManager)
     }
 
     // MARK: Artwork
@@ -257,6 +317,12 @@ struct TagsFromNamesRequest: Identifiable {
 struct QuickActionsRequest: Identifiable {
     let id = UUID()
     var ids: Set<AudioFileItem.ID>
+}
+
+struct TrackNumbersRequest: Identifiable {
+    let id = UUID()
+    /// In list order.
+    var ids: [AudioFileItem.ID]
 }
 
 struct AppAlert: Identifiable {

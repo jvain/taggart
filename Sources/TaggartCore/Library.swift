@@ -346,6 +346,90 @@ public final class Library {
         setEdited(snapshots, actionName: action.actionName, undoManager: undoManager)
     }
 
+    // MARK: Track numbers
+
+    /// What numbering the files in `ids` would do, numbering them in this order.
+    public func planTrackNumbers(_ ids: [AudioFileItem.ID], numbering: TrackNumbering) -> [TrackNumberChange] {
+        numbered(ids, numbering).map { item, tags in
+            TrackNumberChange(id: item.id, url: item.url, before: TrackNumberChange.display(item.edited),
+                              after: TrackNumberChange.display(tags))
+        }
+    }
+
+    /// Numbers the files in `ids` in this order, as one undoable edit.
+    public func applyTrackNumbers(_ ids: [AudioFileItem.ID], numbering: TrackNumbering, undoManager: UndoManager?) {
+        var snapshots: [AudioFileItem.ID: TagSnapshot] = [:]
+        for (item, tags) in numbered(ids, numbering) where tags != item.edited {
+            snapshots[item.id] = tags
+        }
+        setEdited(snapshots, actionName: "Number Tracks", undoManager: undoManager)
+    }
+
+    private func numbered(_ ids: [AudioFileItem.ID], _ numbering: TrackNumbering) -> [(AudioFileItem, TagSnapshot)] {
+        let targets = ids.compactMap { itemsByID[$0] }
+        return zip(targets, numbering.numbers(for: targets.map(\.url))).map { item, numbers in
+            var tags = item.edited
+            tags.set(.trackNumber, to: numbers.number, format: item.info.format)
+            if let total = numbers.total {
+                tags.set(.trackTotal, to: total, format: item.info.format)
+            }
+            return (item, tags)
+        }
+    }
+
+    // MARK: Copying tags
+
+    /// Copies the tags and pictures of the files in `ids`, in this order. The
+    /// pictures' bytes are read from the files (each distinct picture once).
+    public func copyTags(_ ids: [AudioFileItem.ID]) async throws -> CopiedTags {
+        try await Self.copy(ids.compactMap { itemsByID[$0] }.map { CopySource(url: $0.url, tags: $0.edited) })
+    }
+
+    private struct CopySource: Sendable {
+        var url: URL
+        var tags: TagSnapshot
+    }
+
+    @concurrent
+    private nonisolated static func copy(_ sources: [CopySource]) async throws -> CopiedTags {
+        var pictures: [SHA256.Digest: Data] = [:]
+        let files = try sources.map { source in
+            var tags = source.tags
+            tags.artwork = try tags.artwork.map { artwork in
+                let data = try pictures[artwork.digest] ?? TagIO.data(of: artwork, in: source.url)
+                pictures[artwork.digest] = data
+                var copy = artwork
+                copy.source = .new(data)
+                return copy
+            }
+            return tags
+        }
+        return CopiedTags(files: files)
+    }
+
+    /// Replaces the tags and pictures of the files in `ids` with copied ones,
+    /// as one undoable edit. One file's tags go onto every file; several
+    /// files' tags go onto as many files, in this order. Does nothing if the
+    /// counts don't match (see `CopiedTags.canPaste(onto:)`).
+    public func pasteTags(_ copied: CopiedTags, to ids: [AudioFileItem.ID], undoManager: UndoManager?) {
+        guard copied.canPaste(onto: ids.count) else { return }
+        var snapshots: [AudioFileItem.ID: TagSnapshot] = [:]
+        for (index, id) in ids.enumerated() {
+            guard let item = itemsByID[id] else { continue }
+            let source = copied.files[copied.files.count == 1 ? 0 : index]
+            for artwork in source.artwork {
+                if case let .new(data) = artwork.source {
+                    thumbnails.add(data, digest: artwork.digest)
+                }
+            }
+            let tags = source.converted(to: item.info.format)
+            if tags != item.edited {
+                snapshots[id] = tags
+            }
+        }
+        setEdited(snapshots, actionName: "Paste Tags", undoManager: undoManager)
+    }
+
     // MARK: Tags from file names
 
     /// What reading tags from the names of the files in `ids` would do, in list order.

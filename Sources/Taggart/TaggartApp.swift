@@ -36,8 +36,18 @@ struct TaggartApp: App {
                 Button("Format Tags…") { controller.showQuickActionsSheet() }
                     .keyboardShortcut("k", modifiers: [.command, .shift])
                     .disabled(controller.selection.isEmpty || controller.library.isSaving)
+                Button("Number Tracks…") { controller.showTrackNumbersSheet() }
+                    .keyboardShortcut("n", modifiers: [.command, .shift])
+                    .disabled(controller.selection.isEmpty || controller.library.isSaving)
             }
             CommandGroup(after: .pasteboard) {
+                Divider()
+                Button("Copy Tags") { controller.copyTags() }
+                    .keyboardShortcut("c", modifiers: [.command, .shift])
+                    .disabled(controller.selection.isEmpty)
+                Button("Paste Tags") { controller.pasteTags() }
+                    .keyboardShortcut("v", modifiers: [.command, .shift])
+                    .disabled(controller.selection.isEmpty || controller.copiedTags == nil || controller.library.isSaving)
                 Divider()
                 Button("Remove from List") { controller.removeSelected() }
                     .keyboardShortcut(.delete)

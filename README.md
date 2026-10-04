@@ -42,8 +42,8 @@ Lossless), Ogg Vorbis and Opus.
   Renames happen right away and can be undone with ⌘Z.
 - **Format tags:** click the Aa button in the toolbar, or choose Format
   Tags… from the File menu (⇧⌘K) or a file's context menu, to change the case of tags
-  (Title Case, Sentence case, UPPERCASE, lowercase), replaces text (plain or
-  with regular expressions) or cleans up spaces, in all text tags or one of
+  (Title Case, Sentence case, UPPERCASE, lowercase), replace text (plain or
+  with regular expressions) or clean up spaces, in all text tags or one of
   them, for every selected file at once, with a before/after preview.
 - **Tags from file names:** the reverse of renaming. File → Tags from File
   Names… (⇧⌘T) reads tags from names with a pattern such as
@@ -52,6 +52,17 @@ Lossless), Ogg Vorbis and Opus.
   shows the tags read from each file; names that don't match are skipped.
   Only the tags in the pattern change, and like other edits they're saved
   with ⌘S.
+- **Number tracks:** File → Number Tracks… (⇧⌘N) sets Track to 1, 2, 3… for
+  the selected files in list order (sort the list first, e.g. by File). It
+  can start at any number, start over in each folder, set Track Total to the
+  last number, and add leading zeros. A preview shows each file's number
+  before and after.
+- **Copy and paste tags:** Edit → Copy Tags (⇧⌘C) copies all tags and
+  pictures of the selected files; Edit → Paste Tags (⇧⌘V) replaces the
+  selected files' tags and pictures with them. One file's tags paste onto any
+  number of files; several files' tags paste onto as many files, in list
+  order (e.g. from a FLAC album onto its MP3 copies). Copying works between
+  formats, and copied tags stay until you copy again or quit.
 - **Undo/redo** (⌘Z / ⌘⇧Z) for every edit until you save. Edits stay pending
   (marked with a dot, in the list and in the window's close button) until you
   save with ⌘S. **Revert Selected** re-reads

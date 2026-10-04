@@ -4,11 +4,24 @@ Ideas for future work, roughly in order of usefulness.
 
 ## Larger features
 
-None left; see Done below.
+- [ ] **Online album lookup:** search MusicBrainz (or Discogs) for an album and
+  fill in the tags of a whole set of files at once, with the cover from the
+  Cover Art Archive. Both are free and need no account; MusicBrainz asks for
+  at most one request per second and a descriptive User-Agent. The main work
+  is the screen that matches the database's tracks to the files.
+- [ ] **Acoustic fingerprinting (AcoustID):** identify files with no tags.
+  Needs the Chromaprint library and an AcoustID API key.
 
 ## Smaller improvements
 
-None left; see Done below.
+- [ ] **More formats:** WAV, AIFF, WavPack, APE and WMA. TagLib already reads
+  them; they mostly need turning on and testing. WAV and AIFF matter most on
+  the Mac.
+- [ ] **Export and import:** save the tag list as CSV or text; fill tags from a
+  text file, such as a pasted track list.
+- [ ] **More from Format Tags:** saved, chained actions (Mp3tag's action
+  groups), and running actions on file names too.
+- [ ] **Playback:** a play button, to check which song a badly named file is.
 
 ## Housekeeping
 
@@ -16,6 +29,11 @@ None left; see Done below.
 
 ## Done
 
+- [x] **Number tracks** (auto-numbering): Track 1, 2, 3… in list order,
+  optionally starting over in each folder, with the total and leading zeros.
+  (Disc numbers could be added the same way.)
+- [x] **Copy and paste tags:** all tags and pictures, from one file onto many,
+  or from several files onto as many in list order, across formats.
 - [x] **Format tags** (quick actions): case conversion, text replacement (plain or regular
   expression) and space clean-up for the selected files' text tags, with a
   preview. (Applying them to file names could be added later.)

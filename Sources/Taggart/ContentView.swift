@@ -93,6 +93,10 @@ struct ContentView: View {
                 QuickActionsSheet(ids: request.ids)
                     .environment(controller)
             }
+            .sheet(item: $controller.trackNumbersRequest) { request in
+                TrackNumbersSheet(ids: request.ids)
+                    .environment(controller)
+            }
             .onAppear {
                 controller.undoManager = undoManager
                 controller.openWindow = openWindow

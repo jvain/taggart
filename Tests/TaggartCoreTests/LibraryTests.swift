@@ -159,6 +159,34 @@ extension Result {
     }
 }
 
+@Suite("Track numbering")
+struct TrackNumberingTests {
+    let urls = ["/a/x.flac", "/a/y.flac", "/b/z.flac", "/a/w.flac"].map { URL(fileURLWithPath: $0) }
+
+    @Test func numbersInOrder() {
+        let numbers = TrackNumbering(restartsInEachFolder: false).numbers(for: urls)
+        #expect(numbers.map { $0.number } == ["1", "2", "3", "4"])
+        #expect(numbers.allSatisfy { $0.total == nil })
+    }
+
+    @Test func startsOverInEachFolder() {
+        let numbers = TrackNumbering(setsTotal: true).numbers(for: urls)
+        #expect(numbers.map { $0.number } == ["1", "2", "1", "3"])
+        #expect(numbers.map { $0.total } == ["3", "3", "1", "3"])
+    }
+
+    @Test func startsAnywhereWithLeadingZeros() {
+        let sameFolder = [urls[0], urls[1], urls[3]]
+        let padded = TrackNumbering(start: 9, setsTotal: true, padsWithZeros: true).numbers(for: sameFolder)
+        #expect(padded.map { $0.number } == ["09", "10", "11"])
+        #expect(padded.map { $0.total } == ["11", "11", "11"])
+        // Past 99, numbers get as many digits as the last one.
+        #expect(TrackNumbering(start: 98, padsWithZeros: true).numbers(for: sameFolder).map { $0.number }
+            == ["098", "099", "100"])
+        #expect(TrackNumbering(start: 98).numbers(for: sameFolder).map { $0.number } == ["98", "99", "100"])
+    }
+}
+
 @Suite("Raw tag names")
 struct RawTagKeyTests {
     @Test func validatesNames() {
@@ -378,6 +406,108 @@ struct LibraryTests {
         #expect(try library.planQuickAction(remove, fields: QuickAction.fields, in: [ids[0]]).get().isEmpty)
         #expect(library.planQuickAction(.replace(find: "", with: "", matchCase: false, regularExpression: false),
                                         fields: [.title], in: [ids[0]]).isFailure)
+    }
+
+    @Test func numbersTracksInListOrderWithUndo() async throws {
+        let (library, ids, _) = try await loadedLibrary()
+        // basic.flac is track 3 of 12, basic.mp3 "5/9"; cover.flac has no number.
+        let order = [ids[2], ids[0], ids[1]]
+        let numbering = TrackNumbering(setsTotal: true)
+        let plan = library.planTrackNumbers(order, numbering: numbering)
+        #expect(plan.map(\.before) == ["", "3 of 12", "5 of 9"])
+        #expect(plan.map(\.after) == ["1 of 3", "2 of 3", "3 of 3"])
+
+        let undo = undoManager()
+        undo.beginUndoGrouping()
+        library.applyTrackNumbers(order, numbering: numbering, undoManager: undo)
+        undo.endUndoGrouping()
+        #expect(undo.undoActionName == "Number Tracks")
+        // Each format stores the numbers its own way.
+        #expect(library.item(ids[0])?.edited.fields["TRACKNUMBER"] == ["2"])
+        #expect(library.item(ids[0])?.edited.fields["TRACKTOTAL"] == ["3"])
+        #expect(library.item(ids[1])?.edited.fields["TRACKNUMBER"] == ["3/3"])
+        #expect(library.item(ids[2])?.edited.fields["TRACKNUMBER"] == ["1"])
+
+        undo.undo()
+        #expect(library.dirtyItems.isEmpty)
+
+        // Without setting totals, the files' totals stay.
+        let kept = library.planTrackNumbers(order, numbering: TrackNumbering(padsWithZeros: true))
+        #expect(kept.map(\.after) == ["01", "02 of 12", "03 of 9"])
+    }
+
+    @Test func copiesTagsAndCoversBetweenFormats() async throws {
+        let (library, ids, urls) = try await loadedLibrary()
+        // cover.flac: just a title, with a front and a back cover.
+        let copied = try await library.copyTags([ids[2]])
+        #expect(copied.files.count == 1)
+        #expect(copied.files[0].artwork.allSatisfy { if case .new = $0.source { true } else { false } })
+
+        let undo = undoManager()
+        undo.beginUndoGrouping()
+        library.pasteTags(copied, to: [ids[1]], undoManager: undo)
+        undo.endUndoGrouping()
+        #expect(undo.undoActionName == "Paste Tags")
+        let mp3 = try #require(library.item(ids[1]))
+        #expect(mp3.edited.fields == ["TITLE": ["Covered"]])
+        #expect(mp3.edited.artwork.map(\.type) == [.frontCover, .backCover])
+        // Pasting onto the file the tags came from changes nothing.
+        library.pasteTags(copied, to: [ids[2]], undoManager: nil)
+        #expect(library.item(ids[2])?.isDirty == false)
+
+        #expect(await library.save(undoManager: nil).isEmpty)
+        let saved = try TagIO.read(urls[1]).snapshot
+        #expect(saved.fields == ["TITLE": ["Covered"]])
+        #expect(saved.artwork.map(\.digest) == library.item(ids[2])?.edited.artwork.map(\.digest))
+    }
+
+    @Test func pastesNumbersTheWayEachFormatStoresThem() async throws {
+        let (library, ids, urls) = try await loadedLibrary()
+        let m4aURL = try fixture("basic.m4a")
+        await library.add([m4aURL])
+        let m4a = try #require(library.items.first { $0.url.lastPathComponent == "basic.m4a" })
+
+        // basic.flac (track 3 of 12, disc 1 of 2, a custom tag) onto basic.mp3 and basic.m4a.
+        let copied = try await library.copyTags([ids[0]])
+        library.pasteTags(copied, to: [ids[1], m4a.id], undoManager: nil)
+        let mp3 = try #require(library.item(ids[1])).edited
+        #expect(mp3.fields["TRACKNUMBER"] == ["3/12"])
+        #expect(mp3.fields["DISCNUMBER"] == ["1/2"])
+        #expect(mp3.fields["TRACKTOTAL"] == nil)
+        #expect(mp3.fields["ARTIST"] == ["Artist One", "Artist Two"])
+
+        #expect(await library.save(undoManager: nil).isEmpty)
+        for url in [urls[1], m4a.url] {
+            let saved = try TagIO.read(url).snapshot
+            #expect(saved.value(of: .trackNumber) == "3")
+            #expect(saved.value(of: .trackTotal) == "12")
+            #expect(saved.value(of: .discTotal) == "2")
+            #expect(saved.fields["CUSTOM_KEY"] == ["keep me"])
+        }
+
+        // And back: "3/12" in one tag becomes separate number and total tags.
+        let fromMP3 = try await library.copyTags([ids[1]])
+        library.pasteTags(fromMP3, to: [ids[2]], undoManager: nil)
+        #expect(library.item(ids[2])?.edited.fields["TRACKNUMBER"] == ["3"])
+        #expect(library.item(ids[2])?.edited.fields["TRACKTOTAL"] == ["12"])
+    }
+
+    @Test func pastesSeveralFilesTagsInOrder() async throws {
+        let (library, ids, _) = try await loadedLibrary()
+        // Unsaved edits are copied too.
+        library.apply(.setField(.title, "Edited Title"), to: [ids[0]], undoManager: nil)
+        let copied = try await library.copyTags([ids[0], ids[1]])
+        #expect(copied.canPaste(onto: 2))
+        #expect(!copied.canPaste(onto: 1))
+        #expect(!copied.canPaste(onto: 3))
+        library.pasteTags(copied, to: [ids[2]], undoManager: nil)
+        #expect(library.item(ids[2])?.isDirty == false)
+
+        // Swapped: basic.mp3's tags onto basic.flac and the other way round.
+        library.pasteTags(copied, to: [ids[1], ids[0]], undoManager: nil)
+        #expect(library.item(ids[1])?.title == "Edited Title")
+        #expect(library.item(ids[0])?.title == "Mp3 Title")
+        #expect(library.item(ids[0])?.value(.trackNumber) == "5")
     }
 
     @Test func listsGenresInUseByFrequency() async throws {
