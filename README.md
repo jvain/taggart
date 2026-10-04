@@ -40,6 +40,11 @@ Lossless), Ogg Vorbis and Opus.
   A preview shows each new name. Files that would collide with an existing file, or with each
   other, are skipped, and files missing a tag the pattern uses are flagged.
   Renames happen right away and can be undone with ⌘Z.
+- **Format tags:** click the Aa button in the toolbar, or choose Format
+  Tags… from the File menu (⇧⌘K) or a file's context menu, to change the case of tags
+  (Title Case, Sentence case, UPPERCASE, lowercase), replaces text (plain or
+  with regular expressions) or cleans up spaces, in all text tags or one of
+  them, for every selected file at once, with a before/after preview.
 - **Tags from file names:** the reverse of renaming. File → Tags from File
   Names… (⇧⌘T) reads tags from names with a pattern such as
   `%track% - %title%`; `/` reads folder names too (e.g.

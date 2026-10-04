@@ -16,6 +16,9 @@ None left; see Done below.
 
 ## Done
 
+- [x] **Format tags** (quick actions): case conversion, text replacement (plain or regular
+  expression) and space clean-up for the selected files' text tags, with a
+  preview. (Applying them to file names could be added later.)
 - [x] **Fast sorting for big collections:** the sorted order is cached and
   computed with each file's values read once; editing doesn't re-sort (click
   a column header to sort again). With 20 000 files, actions on a sorted list

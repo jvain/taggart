@@ -33,6 +33,9 @@ struct TaggartApp: App {
                 Button("Tags from File Names…") { controller.showTagsFromNamesSheet() }
                     .keyboardShortcut("t", modifiers: [.command, .shift])
                     .disabled(controller.selection.isEmpty || controller.library.isSaving)
+                Button("Format Tags…") { controller.showQuickActionsSheet() }
+                    .keyboardShortcut("k", modifiers: [.command, .shift])
+                    .disabled(controller.selection.isEmpty || controller.library.isSaving)
             }
             CommandGroup(after: .pasteboard) {
                 Divider()

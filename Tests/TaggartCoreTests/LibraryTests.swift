@@ -112,6 +112,53 @@ struct TagsFromNameTests {
     }
 }
 
+@Suite("Quick actions")
+struct QuickActionTests {
+    func run(_ action: QuickAction, _ text: String) -> String? {
+        guard case let .success(transform) = action.transform() else { return nil }
+        return transform(text)
+    }
+
+    @Test func changesCase() {
+        let title = QuickAction.changeCase(.titleCase)
+        #expect(run(title, "the BEST of me") == "The Best Of Me")
+        #expect(run(title, "don't stop (live version)") == "Don't Stop (Live Version)")
+        #expect(run(title, "hip-hop/r&b") == "Hip-Hop/R&b")
+        #expect(run(title, "the 2nd time") == "The 2nd Time")
+        #expect(run(title, "ääni ja öljy") == "Ääni Ja Öljy")
+        #expect(run(title, "r.e.m. [remastered]") == "R.E.M. [Remastered]")
+
+        #expect(run(.changeCase(.sentenceCase), "THE SONG OF THE YEAR") == "The song of the year")
+        #expect(run(.changeCase(.sentenceCase), "(intro) PART ONE") == "(Intro) part one")
+        #expect(run(.changeCase(.uppercase), "Ääni") == "ÄÄNI")
+        #expect(run(.changeCase(.lowercase), "ÄÄNI") == "ääni")
+    }
+
+    @Test func replacesText() {
+        #expect(run(.replace(find: "feat.", with: "ft.", matchCase: false, regularExpression: false), "A FEAT. B") == "A ft. B")
+        #expect(run(.replace(find: "feat.", with: "ft.", matchCase: true, regularExpression: false), "A FEAT. B") == "A FEAT. B")
+        // Regular expressions, with groups; "." is a wildcard there.
+        #expect(run(.replace(find: "^(\\d+)\\. ", with: "$1 - ", matchCase: false, regularExpression: true), "01. Song") == "01 - Song")
+        #expect(run(.replace(find: "\\s*\\(remaster(ed)?\\)", with: "", matchCase: false, regularExpression: true), "Song (Remastered)") == "Song")
+    }
+
+    @Test func rejectsInvalidActions() {
+        #expect(QuickAction.replace(find: "", with: "x", matchCase: false, regularExpression: false).transform().isFailure)
+        #expect(QuickAction.replace(find: "([", with: "x", matchCase: false, regularExpression: true).transform().isFailure)
+    }
+
+    @Test func cleansUpSpaces() {
+        #expect(run(.cleanUpSpaces, "  Too   many \t spaces  ") == "Too many spaces")
+        #expect(run(.cleanUpSpaces, "Line one\nLine  two ") == "Line one\nLine two")
+    }
+}
+
+extension Result {
+    var isFailure: Bool {
+        if case .failure = self { true } else { false }
+    }
+}
+
 @Suite("Raw tag names")
 struct RawTagKeyTests {
     @Test func validatesNames() {
@@ -295,6 +342,42 @@ struct LibraryTests {
         #expect(library.item(ids[0])?.edited.fields["ARTISTS"] == ["Z", "D"])
         library.apply(.setTagValue("ARTISTS", index: 0, ""), to: [ids[2]], undoManager: nil)
         #expect(library.item(ids[2])?.edited.fields["ARTISTS"] == nil)
+    }
+
+    @Test func appliesQuickActionsToSelectedFields() async throws {
+        let (library, ids, _) = try await loadedLibrary()
+        let all = Set(ids)
+        let upper = QuickAction.changeCase(.uppercase)
+
+        // Only the chosen fields; multiple values (basic.flac's two artists) each change.
+        let plan = try library.planQuickAction(upper, fields: [.artist], in: all).get()
+        #expect(plan.map(\.field) == [.artist, .artist])
+        #expect(plan.first?.before == "Artist One; Artist Two")
+        #expect(plan.first?.after == "ARTIST ONE; ARTIST TWO")
+
+        let undo = undoManager()
+        undo.beginUndoGrouping()
+        library.applyQuickAction(upper, fields: [.artist], to: all, undoManager: undo)
+        undo.endUndoGrouping()
+        #expect(undo.undoActionName == "Change Case")
+        #expect(library.item(ids[0])?.edited.fields["ARTIST"] == ["ARTIST ONE", "ARTIST TWO"])
+        #expect(library.item(ids[1])?.artist == "MP3 ARTIST")
+        #expect(library.item(ids[0])?.title == "Flac Title")
+        #expect(library.item(ids[2])?.isDirty == false)
+
+        undo.undo()
+        #expect(library.item(ids[0])?.edited.fields["ARTIST"] == ["Artist One", "Artist Two"])
+    }
+
+    @Test func quickActionsCanEmptyATag() async throws {
+        let (library, ids, _) = try await loadedLibrary()
+        let remove = QuickAction.replace(find: "Ambient", with: "", matchCase: true, regularExpression: false)
+        library.applyQuickAction(remove, fields: QuickAction.fields, to: [ids[0]], undoManager: nil)
+        #expect(library.item(ids[0])?.edited.fields["GENRE"] == nil)
+        // Nothing to change means nothing planned.
+        #expect(try library.planQuickAction(remove, fields: QuickAction.fields, in: [ids[0]]).get().isEmpty)
+        #expect(library.planQuickAction(.replace(find: "", with: "", matchCase: false, regularExpression: false),
+                                        fields: [.title], in: [ids[0]]).isFailure)
     }
 
     @Test func listsGenresInUseByFrequency() async throws {

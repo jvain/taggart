@@ -14,6 +14,7 @@ final class AppController {
     /// The file list cell being edited in place, if any.
     var editingCell: EditingCell?
     var tagsFromNamesRequest: TagsFromNamesRequest?
+    var quickActionsRequest: QuickActionsRequest?
     /// True while a cover is being downloaded from the web.
     var isDownloadingArtwork = false
 
@@ -123,6 +124,17 @@ final class AppController {
 
     func applyTagsFromNames(_ plans: [TagsFromNamePlan]) {
         library.applyTagsFromNames(plans, undoManager: undoManager)
+    }
+
+    // MARK: Quick actions
+
+    func showQuickActionsSheet() {
+        guard !selection.isEmpty else { return }
+        quickActionsRequest = QuickActionsRequest(ids: selection)
+    }
+
+    func applyQuickAction(_ action: QuickAction, fields: [LogicalField], to ids: Set<AudioFileItem.ID>) {
+        library.applyQuickAction(action, fields: fields, to: ids, undoManager: undoManager)
     }
 
     // MARK: Artwork
@@ -238,6 +250,11 @@ struct RenameRequest: Identifiable {
 }
 
 struct TagsFromNamesRequest: Identifiable {
+    let id = UUID()
+    var ids: Set<AudioFileItem.ID>
+}
+
+struct QuickActionsRequest: Identifiable {
     let id = UUID()
     var ids: Set<AudioFileItem.ID>
 }

@@ -88,6 +88,10 @@ struct FileTable: View {
                     controller.selection = ids
                     controller.showTagsFromNamesSheet()
                 }
+                Button("Format Tags…") {
+                    controller.selection = ids
+                    controller.showQuickActionsSheet()
+                }
                 Button("Revert") {
                     controller.selection = ids
                     controller.revertSelected()

@@ -313,6 +313,39 @@ public final class Library {
         }
     }
 
+    // MARK: Quick actions
+
+    /// The tags a quick action would change in the files in `ids`, in list
+    /// order. Fails if the action itself is invalid (e.g. a bad regex).
+    public func planQuickAction(_ action: QuickAction, fields: [LogicalField],
+                                in ids: Set<AudioFileItem.ID>) -> Result<[QuickActionChange], QuickActionError> {
+        action.transform().map { transform in
+            items(ids).flatMap { item in
+                let changed = item.edited.applying(transform, to: fields)
+                return fields.compactMap { field -> QuickActionChange? in
+                    let before = item.edited.value(of: field)
+                    let after = changed.value(of: field)
+                    return before == after ? nil
+                        : QuickActionChange(itemID: item.id, url: item.url, field: field, before: before, after: after)
+                }
+            }
+        }
+    }
+
+    /// Applies a quick action to the files in `ids`, as one undoable edit.
+    public func applyQuickAction(_ action: QuickAction, fields: [LogicalField], to ids: Set<AudioFileItem.ID>,
+                                 undoManager: UndoManager?) {
+        guard case let .success(transform) = action.transform() else { return }
+        var snapshots: [AudioFileItem.ID: TagSnapshot] = [:]
+        for item in items(ids) {
+            let changed = item.edited.applying(transform, to: fields)
+            if changed != item.edited {
+                snapshots[item.id] = changed
+            }
+        }
+        setEdited(snapshots, actionName: action.actionName, undoManager: undoManager)
+    }
+
     // MARK: Tags from file names
 
     /// What reading tags from the names of the files in `ids` would do, in list order.

@@ -55,6 +55,9 @@ struct ContentView: View {
                     Button("Rename", systemImage: "rectangle.and.pencil.and.ellipsis") { controller.showRenameSheet() }
                         .help("Rename the selected files from their tags (⇧⌘R)")
                         .disabled(controller.selection.isEmpty || library.isSaving)
+                    Button("Format Tags", systemImage: "textformat") { controller.showQuickActionsSheet() }
+                        .help("Format the selected files' tags: change case, replace text (⇧⌘K)")
+                        .disabled(controller.selection.isEmpty || library.isSaving)
                     Button("Settings", systemImage: "gearshape") { openSettings() }
                         .help("Settings (⌘,)")
                 }
@@ -84,6 +87,10 @@ struct ContentView: View {
             }
             .sheet(item: $controller.tagsFromNamesRequest) { request in
                 TagsFromNamesSheet(ids: request.ids)
+                    .environment(controller)
+            }
+            .sheet(item: $controller.quickActionsRequest) { request in
+                QuickActionsSheet(ids: request.ids)
                     .environment(controller)
             }
             .onAppear {
