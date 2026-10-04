@@ -72,12 +72,12 @@ struct SettingsView: View {
     var body: some View {
         Form {
             Section {
-                Picker("Write MP3 tags as:", selection: $id3v2Version) {
+                Picker("Write ID3v2 tags as:", selection: $id3v2Version) {
                     ForEach(ID3v2WriteVersion.allCases) { version in
                         Text(version.label).tag(version.rawValue)
                     }
                 }
-                Text("ID3v2.3 is the most widely supported; ID3v2.4 supports UTF-8 and multiple values.")
+                Text("MP3, WAV and AIFF files store their tags as ID3v2. ID3v2.3 is the most widely supported; ID3v2.4 supports UTF-8 and multiple values.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

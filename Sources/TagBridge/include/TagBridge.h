@@ -24,12 +24,20 @@ typedef enum {
     TB_FORMAT_MP4 = 3,
     TB_FORMAT_OGG_VORBIS = 4,
     TB_FORMAT_OPUS = 5,
+    TB_FORMAT_WAV = 6,
+    TB_FORMAT_AIFF = 7,
+    TB_FORMAT_WAVPACK = 8,
+    /// Monkey's Audio.
+    TB_FORMAT_APE = 9,
+    /// Windows Media Audio.
+    TB_FORMAT_ASF = 10,
 } tb_format;
 
 typedef enum {
     TB_CODEC_UNKNOWN = 0,
     TB_CODEC_AAC = 1,
     TB_CODEC_ALAC = 2,
+    TB_CODEC_WMA_LOSSLESS = 3,
 } tb_codec;
 
 typedef enum {
@@ -42,7 +50,7 @@ typedef enum {
 
 typedef struct {
     tb_format format;
-    /// The codec inside an MP4 file; unknown for other formats.
+    /// The codec inside an MP4 file, or WMA Lossless; unknown otherwise.
     tb_codec codec;
     int length_ms;
     int bitrate_kbps;
@@ -50,7 +58,8 @@ typedef struct {
     int channels;
     /// 0 when the format has no fixed sample depth (e.g. MP3).
     int bits_per_sample;
-    /// Major version of the ID3v2 tag on disk (2, 3 or 4), or 0 if there is none.
+    /// Major version of the ID3v2 tag on disk (2, 3 or 4) in an MP3, WAV or AIFF
+    /// file, or 0 if there is none.
     int id3v2_version;
     bool has_id3v1;
     bool read_only;
@@ -92,22 +101,30 @@ typedef struct {
 } tb_string_list;
 
 /// Opens a file for reading and writing tags. Returns NULL on failure, with a
-/// message in `error` (which may be NULL).
+/// message in `error` (which may be NULL). Files whose contents don't match
+/// their extension (e.g. a text file named .wav) are refused.
 tb_file *tb_open(const char *path, char *error, size_t error_size);
 void tb_close(tb_file *file);
 
 tb_info tb_get_info(const tb_file *file);
 
 /// The file's tags as TagLib's unified property map (e.g. "ARTIST" => ["A", "B"]).
+/// WAV files have two tags, ID3v2 and RIFF INFO: this is the ID3v2 tag, or the
+/// INFO tag if there's no ID3v2 tag.
 tb_property_list tb_get_properties(const tb_file *file);
 /// Replaces the whole property map. Keys not present are removed. Returns the
 /// entries the format could not store (usually none); free it with
-/// tb_property_list_free.
+/// tb_property_list_free. WAV files get both tags (INFO holds the common keys,
+/// one value each). WMA files get one value per key: several values are
+/// joined with "; ", since TagLib can't keep them in order.
 tb_property_list tb_set_properties(tb_file *file, const tb_property *items, size_t count);
 void tb_property_list_free(tb_property_list list);
 
 /// Embedded pictures (FLAC and Ogg PICTURE blocks, ID3v2 APIC frames, MP4
-/// covr atoms). MP4 stores no picture type; those are reported as front covers.
+/// covr atoms, APE cover items, WMA WM/Picture). MP4 stores no picture type;
+/// those are reported as front covers. APE tags (WavPack, Monkey's Audio) hold
+/// one front and one back cover, with no MIME type (it's an empty string).
+/// WMA files list front covers first.
 tb_picture_list tb_get_pictures(const tb_file *file);
 /// Replaces all embedded pictures.
 bool tb_set_pictures(tb_file *file, const tb_picture *items, size_t count);
@@ -120,6 +137,7 @@ void tb_string_list_free(tb_string_list list);
 
 /// Writes pending changes to disk. For MP3 files only the ID3v2 tag and an
 /// already existing ID3v1/APE tag are written; ID3v1 is never created.
+/// `id3v2_version` applies to MP3, WAV and AIFF files.
 bool tb_save(tb_file *file, tb_id3v2_version id3v2_version, char *error, size_t error_size);
 
 #ifdef __cplusplus

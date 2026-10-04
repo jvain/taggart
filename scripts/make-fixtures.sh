@@ -2,7 +2,8 @@
 # Makes the tiny audio files used by the tests. The outputs are committed, so
 # this only needs to run when fixtures are added or changed. By default only
 # missing fixtures are made, so existing ones don't change needlessly;
-# --force remakes them all. Requires: brew install ffmpeg flac
+# --force remakes them all. Requires: brew install ffmpeg flac (and python3,
+# which comes with the Command Line Tools).
 set -eu
 
 out="$(cd "$(dirname "$0")/.." && pwd)/Tests/TaggartCoreTests/Fixtures"
@@ -106,6 +107,55 @@ if missing basic.opus; then
         -metadata TITLE="Opus Title" -metadata ARTIST="Opus Artist" \
         -metadata TRACKNUMBER=6 -metadata CUSTOM_KEY="keep me" \
         "$out/basic.opus"
+fi
+
+# Uncompressed formats are kept short, so the files stay small.
+short="-f lavfi -t 0.1 -i anullsrc=r=44100:cl=stereo"
+
+# WAV with only a RIFF INFO tag (what ffmpeg writes).
+if missing basic.wav; then
+    ff $short -c:a pcm_s16le \
+        -metadata title="Wav Title" -metadata artist="Wav Artist" -metadata album="Wav Album" \
+        -metadata track=8 -metadata date=2010 -metadata genre=Rock \
+        "$out/basic.wav"
+fi
+
+# AIFF with an ID3v2.4 tag, "n/total" track number and a custom tag.
+if missing basic.aiff; then
+    ff $short -c:a pcm_s16be -write_id3v2 1 -id3v2_version 4 \
+        -metadata title="Aiff Title" -metadata artist="Aiff Artist" -metadata album="Aiff Album" \
+        -metadata track=5/9 -metadata date=1999 -metadata CUSTOM_KEY="keep me" \
+        "$out/basic.aiff"
+fi
+
+# WavPack with an APEv2 tag.
+if missing basic.wv; then
+    ff $silence -c:a wavpack -sample_fmt s16p \
+        -metadata title="Wv Title" -metadata artist="Wv Artist" -metadata album="Wv Album" \
+        -metadata track=3/12 -metadata date=2003 -metadata CUSTOM_KEY="keep me" \
+        "$out/basic.wv"
+fi
+
+# Monkey's Audio, untagged. ffmpeg can't encode it, so this is a valid header
+# (version 3.99, 16-bit stereo, 44.1 kHz, one 1-second frame) followed by
+# zeros in place of audio: enough for TagLib, which reads only the header and
+# the tags.
+if missing basic.ape; then
+    python3 - "$out/basic.ape" <<'PY'
+import struct, sys
+audio = 4096
+descriptor = b"MAC " + struct.pack("<HH7I", 3990, 0, 52, 24, 0, 0, audio, 0, 0) + bytes(16)
+header = struct.pack("<HHIIIHHI", 2000, 0, 73728, 44100, 1, 16, 2, 44100)
+open(sys.argv[1], "wb").write(descriptor + header + bytes(audio))
+PY
+fi
+
+# WMA with tags in both of its tag objects.
+if missing basic.wma; then
+    ff $silence -c:a wmav2 -b:a 64k \
+        -metadata title="Wma Title" -metadata artist="Wma Artist" -metadata album="Wma Album" \
+        -metadata track=7 -metadata date=2007 -metadata genre=Pop \
+        "$out/basic.wma"
 fi
 
 ls -l "$out"

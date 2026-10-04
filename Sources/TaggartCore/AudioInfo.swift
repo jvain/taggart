@@ -7,20 +7,31 @@ public enum AudioFormat: String, Sendable, Hashable {
     case mp4 = "M4A"
     case oggVorbis = "Ogg Vorbis"
     case opus = "Opus"
+    case wav = "WAV"
+    case aiff = "AIFF"
+    case wavPack = "WavPack"
+    /// Monkey's Audio.
+    case ape = "APE"
+    case wma = "WMA"
     case other = "Other"
 
     /// Whether the format keeps a number and its total in one tag ("3/12"),
-    /// like ID3v2's TRCK and MP4's trkn, rather than in separate tags.
+    /// like ID3v2's TRCK (also in WAV and AIFF), MP4's trkn, APE's Track and
+    /// WMA's WM/PartOfSet, rather than in separate tags as Vorbis comments do.
     var storesTotalWithNumber: Bool {
-        self == .mp3 || self == .mp4
+        switch self {
+        case .flac, .oggVorbis, .opus, .other: false
+        case .mp3, .mp4, .wav, .aiff, .wavPack, .ape, .wma: true
+        }
     }
 }
 
-/// The codec inside an MP4 file.
+/// The codec inside an MP4 or WMA file, where it tells lossy from lossless.
 public enum AudioCodec: Sendable, Hashable {
     case unknown
     case aac
     case alac
+    case wmaLossless
 }
 
 /// Technical properties of an audio file, for display.
@@ -60,11 +71,17 @@ public struct AudioInfo: Sendable, Hashable {
         case TB_FORMAT_MP4: .mp4
         case TB_FORMAT_OGG_VORBIS: .oggVorbis
         case TB_FORMAT_OPUS: .opus
+        case TB_FORMAT_WAV: .wav
+        case TB_FORMAT_AIFF: .aiff
+        case TB_FORMAT_WAVPACK: .wavPack
+        case TB_FORMAT_APE: .ape
+        case TB_FORMAT_ASF: .wma
         default: .other
         }
         let codec: AudioCodec = switch info.codec {
         case TB_CODEC_AAC: .aac
         case TB_CODEC_ALAC: .alac
+        case TB_CODEC_WMA_LOSSLESS: .wmaLossless
         default: .unknown
         }
         self.init(
@@ -97,10 +114,15 @@ public struct AudioInfo: Sendable, Hashable {
             switch codec {
             case .alac: return lossless("ALAC")
             case .aac: return lossy("AAC")
-            case .unknown: return lossy("M4A")
+            default: return lossy("M4A")
             }
         case .oggVorbis: return lossy("Vorbis")
         case .opus: return lossy("Opus")
+        case .wav: return lossless("WAV")
+        case .aiff: return lossless("AIFF")
+        case .wavPack: return lossless("WavPack")
+        case .ape: return lossless("APE")
+        case .wma: return codec == .wmaLossless ? lossless("WMA Lossless") : lossy("WMA")
         case .other: return format.rawValue
         }
     }

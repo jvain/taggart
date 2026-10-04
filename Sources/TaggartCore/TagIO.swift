@@ -26,7 +26,8 @@ public enum TagIO {
                 : ArtworkImage.metrics(of: picture.data)
             return Artwork(
                 type: PictureType(rawValue: picture.type),
-                mimeType: picture.mimeType,
+                // APE tags (WavPack, Monkey's Audio) don't store it.
+                mimeType: picture.mimeType.isEmpty ? ArtworkImage.mimeType(of: picture.data) ?? "" : picture.mimeType,
                 description: picture.description,
                 digest: digest,
                 byteCount: picture.data.count,

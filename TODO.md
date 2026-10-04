@@ -14,9 +14,6 @@ Ideas for future work, roughly in order of usefulness.
 
 ## Smaller improvements
 
-- [ ] **More formats:** WAV, AIFF, WavPack, APE and WMA. TagLib already reads
-  them; they mostly need turning on and testing. WAV and AIFF matter most on
-  the Mac.
 - [ ] **Export and import:** save the tag list as CSV or text; fill tags from a
   text file, such as a pasted track list.
 - [ ] **More from Format Tags:** saved, chained actions (Mp3tag's action
@@ -29,6 +26,10 @@ Ideas for future work, roughly in order of usefulness.
 
 ## Done
 
+- [x] **More formats:** WAV (ID3v2 plus RIFF INFO), AIFF, WavPack, Monkey's
+  Audio and WMA. Files whose contents don't match their extension are
+  refused. (TagLib also handles DSF, Musepack, TrueAudio and Matroska audio,
+  if they're ever wanted.)
 - [x] **Number tracks** (auto-numbering): Track 1, 2, 3… in list order,
   optionally starting over in each folder, with the total and leading zeros.
   (Disc numbers could be added the same way.)

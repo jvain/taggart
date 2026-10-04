@@ -51,6 +51,29 @@ func audioDigest(of url: URL) throws -> SHA256.Digest {
     if bytes.count >= 8, bytes[4..<8].elementsEqual(Array("ftyp".utf8)) {
         return try mp4AudioDigest(bytes)
     }
+    if bytes.count >= 12, ["RIFF", "FORM"].contains(where: { bytes[0..<4].elementsEqual(Array($0.utf8)) }) {
+        return try riffAudioDigest(bytes)
+    }
+    if bytes.starts(with: asfHeaderGUID) {
+        return try asfAudioDigest(bytes)
+    }
+    if bytes.starts(with: Array("wvpk".utf8)) || bytes.starts(with: Array("MAC ".utf8)) {
+        // WavPack and Monkey's Audio: the audio, then APE and ID3v1 tags.
+        var end = bytes.count
+        if end >= 128, bytes[(end - 128)..<(end - 125)].elementsEqual(Array("TAG".utf8)) {
+            end -= 128
+        }
+        if end >= 32, bytes[(end - 32)..<(end - 24)].elementsEqual(Array("APETAGEX".utf8)) {
+            func littleEndian(_ offset: Int) -> Int {
+                bytes[offset..<(offset + 4)].reversed().reduce(0) { $0 << 8 | Int($1) }
+            }
+            // The size covers the items and the footer; a header may precede them.
+            let size = littleEndian(end - 32 + 12)
+            let hasHeader = littleEndian(end - 32 + 20) & (1 << 31) != 0
+            end -= size + (hasHeader ? 32 : 0)
+        }
+        return SHA256.hash(data: Data(bytes[0..<end]))
+    }
     var start = 0
     var end = bytes.count
     if bytes.starts(with: Array("fLaC".utf8)) {
@@ -125,6 +148,46 @@ private func mp4AudioDigest(_ bytes: [UInt8]) throws -> SHA256.Digest {
     }
     guard !audio.isEmpty else { throw NoAudioFound() }
     return SHA256.hash(data: audio)
+}
+
+/// WAV and AIFF: the contents of the audio chunk ("data" or "SSND").
+private func riffAudioDigest(_ bytes: [UInt8]) throws -> SHA256.Digest {
+    let bigEndian = bytes.starts(with: Array("FORM".utf8))
+    let audioChunk = Array((bigEndian ? "SSND" : "data").utf8)
+    var position = 12
+    while position + 8 <= bytes.count {
+        let sizeBytes = bytes[(position + 4)..<(position + 8)]
+        let size = (bigEndian ? Array(sizeBytes) : sizeBytes.reversed()).reduce(0) { $0 << 8 | Int($1) }
+        let start = position + 8
+        if bytes[position..<(position + 4)].elementsEqual(audioChunk) {
+            return SHA256.hash(data: Data(bytes[start..<min(start + size, bytes.count)]))
+        }
+        // Chunks are padded to an even size.
+        position = start + size + (size & 1)
+    }
+    throw NoAudioFound()
+}
+
+private let asfHeaderGUID: [UInt8] = [
+    0x30, 0x26, 0xB2, 0x75, 0x8E, 0x66, 0xCF, 0x11, 0xA6, 0xD9, 0x00, 0xAA, 0x00, 0x62, 0xCE, 0x6C,
+]
+private let asfDataGUID: [UInt8] = [
+    0x36, 0x26, 0xB2, 0x75, 0x8E, 0x66, 0xCF, 0x11, 0xA6, 0xD9, 0x00, 0xAA, 0x00, 0x62, 0xCE, 0x6C,
+]
+
+/// WMA (ASF): the data object, which holds the audio packets. The tags live in
+/// the header object before it.
+private func asfAudioDigest(_ bytes: [UInt8]) throws -> SHA256.Digest {
+    var position = 0
+    while position + 24 <= bytes.count {
+        let size = bytes[(position + 16)..<(position + 24)].reversed().reduce(0) { $0 << 8 | Int($1) }
+        guard size >= 24 else { break }
+        if bytes[position..<(position + 16)].elementsEqual(asfDataGUID) {
+            return SHA256.hash(data: Data(bytes[position..<min(position + size, bytes.count)]))
+        }
+        position += size
+    }
+    throw NoAudioFound()
 }
 
 /// Major ID3v2 version in the file header, or nil if there's no ID3v2 tag.

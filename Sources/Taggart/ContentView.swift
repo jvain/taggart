@@ -20,7 +20,7 @@ struct ContentView: View {
                     ContentUnavailableView {
                         Label("No Files", systemImage: "music.note.list")
                     } description: {
-                        Text("Drop audio files or folders here, or press ⌘O.\nFLAC, MP3, M4A (AAC and ALAC), Ogg Vorbis and Opus are supported.")
+                        Text("Drop audio files or folders here, or press ⌘O.\nFLAC, MP3, M4A (AAC and ALAC), Ogg Vorbis, Opus, WAV, AIFF, WavPack, APE and WMA are supported.")
                     } actions: {
                         Button("Open…") { controller.showOpenPanel() }
                     }

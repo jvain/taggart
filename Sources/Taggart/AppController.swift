@@ -51,7 +51,7 @@ final class AppController {
         panel.allowsMultipleSelection = true
         panel.canChooseDirectories = true
         panel.allowedContentTypes = Self.audioTypes + [.folder]
-        panel.message = "Choose audio files (FLAC, MP3, M4A, Ogg Vorbis, Opus), or folders containing them."
+        panel.message = "Choose audio files (FLAC, MP3, M4A, Ogg Vorbis, Opus, WAV, AIFF, WavPack, APE, WMA), or folders containing them."
         guard panel.runModal() == .OK else { return }
         add(panel.urls)
     }

@@ -83,6 +83,45 @@ struct ReadingTests {
         #expect(opus.snapshot.value(of: .trackNumber) == "6")
     }
 
+    @Test func readsWavAiffWavPackApeAndWma() throws {
+        let wav = try TagIO.read(fixture("basic.wav"))
+        #expect(wav.info.format == .wav)
+        #expect(wav.info.summary.hasPrefix("WAV 16-bit"))
+        // Only a RIFF INFO tag so far.
+        #expect(wav.info.id3v2Version == 0)
+        #expect(wav.snapshot.value(of: .title) == "Wav Title")
+        #expect(wav.snapshot.value(of: .trackNumber) == "8")
+
+        let aiff = try TagIO.read(fixture("basic.aiff"))
+        #expect(aiff.info.format == .aiff)
+        #expect(aiff.info.id3v2Version == 4)
+        #expect(aiff.snapshot.value(of: .trackNumber) == "5")
+        #expect(aiff.snapshot.value(of: .trackTotal) == "9")
+        #expect(aiff.snapshot.fields["CUSTOM_KEY"] == ["keep me"])
+
+        let wavPack = try TagIO.read(fixture("basic.wv"))
+        #expect(wavPack.info.format == .wavPack)
+        #expect(wavPack.info.summary.hasPrefix("WavPack 16-bit"))
+        #expect(wavPack.snapshot.value(of: .title) == "Wv Title")
+        #expect(wavPack.snapshot.value(of: .trackNumber) == "3")
+        #expect(wavPack.snapshot.value(of: .trackTotal) == "12")
+        #expect(wavPack.snapshot.fields["CUSTOM_KEY"] == ["keep me"])
+
+        let ape = try TagIO.read(fixture("basic.ape"))
+        #expect(ape.info.format == .ape)
+        #expect(ape.info.summary.hasPrefix("APE 16-bit"))
+        #expect(abs(ape.info.duration - 1) < 0.1)
+        #expect(ape.snapshot.fields.isEmpty)
+
+        let wma = try TagIO.read(fixture("basic.wma"))
+        #expect(wma.info.format == .wma)
+        #expect(wma.info.summary.hasPrefix("WMA "))
+        #expect(wma.snapshot.value(of: .title) == "Wma Title")
+        #expect(wma.snapshot.value(of: .artist) == "Wma Artist")
+        #expect(wma.snapshot.value(of: .trackNumber) == "7")
+        #expect(wma.snapshot.value(of: .genre) == "Pop")
+    }
+
     @Test func readsArtwork() throws {
         let flac = try TagIO.read(fixture("cover.flac")).snapshot.artwork
         #expect(flac.map(\.type) == [.frontCover, .backCover])
@@ -104,9 +143,12 @@ struct ReadingTests {
         }
     }
 
-    @Test func rejectsNonAudio() throws {
+    /// An image renamed to look like audio is refused, so tags are never
+    /// written into it.
+    @Test(arguments: FileScanner.supportedExtensions.sorted())
+    func rejectsNonAudio(_ fileExtension: String) throws {
         let url = try fixture("blue.jpg")
-        let renamed = url.deletingPathExtension().appendingPathExtension("mp3")
+        let renamed = url.deletingPathExtension().appendingPathExtension(fileExtension)
         try FileManager.default.moveItem(at: url, to: renamed)
         #expect(throws: TagIOError.self) { try TagIO.read(renamed) }
     }
@@ -117,6 +159,7 @@ struct WritingTests {
     static let files = [
         "basic.flac", "basic.mp3", "legacy.mp3", "cover.flac", "cover.mp3",
         "basic.m4a", "cover.m4a", "basic.ogg", "basic.opus",
+        "basic.wav", "basic.aiff", "basic.wv", "basic.ape", "basic.wma",
     ]
 
     @Test(arguments: files)
@@ -172,7 +215,8 @@ struct WritingTests {
         #expect(loaded.snapshot.fields["ARTIST"]?.isEmpty == false)
     }
 
-    @Test(arguments: files)
+    // WMA can't store tags it doesn't know, such as "MY TAG"; see refusesUnknownTagsInWMA.
+    @Test(arguments: files.filter { $0 != "basic.wma" })
     func roundTripsRawTags(_ name: String) throws {
         let tags: [String: [String]] = [
             "MUSICBRAINZ_TRACKID": ["7f7c3e7a-9d43-4b7b-a2a3-1d5a7c1f0e11"],
@@ -197,12 +241,81 @@ struct WritingTests {
         #expect(deleted.snapshot.fields["LYRICS"] == tags["LYRICS"])
     }
 
-    @Test(arguments: ["basic.flac", "basic.mp3", "basic.m4a", "basic.ogg", "basic.opus"])
+    // Not WMA, which gets one value per tag (see joinsSeveralWMAValues).
+    @Test(arguments: [
+        "basic.flac", "basic.mp3", "basic.m4a", "basic.ogg", "basic.opus",
+        "basic.wav", "basic.aiff", "basic.wv", "basic.ape",
+    ])
     func roundTripsMultipleRawValues(_ name: String) throws {
         let reloaded = try edit(fixture(name)) { snapshot, format in
             snapshot = snapshot.applying(.setTag("ARTISTS", ["First Artist", "Second Artist"]), format: format)
         }
         #expect(reloaded.snapshot.fields["ARTISTS"] == ["First Artist", "Second Artist"])
+    }
+
+    @Test func refusesUnknownTagsInWMA() throws {
+        let url = try fixture("basic.wma")
+        // Known tags round-trip…
+        let known = try edit(url) { tags, format in
+            tags = tags.applying(.setTag("MUSICBRAINZ_TRACKID", ["7f7c3e7a"]), format: format)
+            tags = tags.applying(.setTag("LYRICS", ["Line one\nLine two"]), format: format)
+        }
+        #expect(known.snapshot.fields["MUSICBRAINZ_TRACKID"] == ["7f7c3e7a"])
+        #expect(known.snapshot.fields["LYRICS"] == ["Line one\nLine two"])
+        // …and saving one it can't store fails, naming it, with the file untouched.
+        let before = try Data(contentsOf: url)
+        #expect {
+            try edit(url) { tags, format in tags = tags.applying(.setTag("MY TAG", ["x"]), format: format) }
+        } throws: { error in
+            (error as? TagIOError)?.errorDescription?.contains("MY TAG") == true
+        }
+        #expect(try Data(contentsOf: url) == before)
+    }
+
+    @Test func joinsSeveralWMAValues() throws {
+        // WMA gets one value per tag: several are joined, and read back as one,
+        // in their order.
+        let url = try fixture("basic.wma")
+        let loaded = try edit(url) { tags, format in
+            tags.set(.artist, to: "First; Second", format: format)
+            tags.set(.albumArtist, to: "Band One; Band Two", format: format)
+        }
+        #expect(loaded.snapshot.fields["ARTIST"] == ["First; Second"])
+        #expect(loaded.snapshot.fields["ALBUMARTIST"] == ["Band One; Band Two"])
+        #expect(loaded.snapshot.value(of: .albumArtist) == "Band One; Band Two")
+        // Saving again (here, after another edit) keeps the order.
+        let again = try edit(url) { tags, format in tags.set(.title, to: "Again", format: format) }
+        #expect(again.snapshot.value(of: .albumArtist) == "Band One; Band Two")
+    }
+
+    @Test func wavGetsAnID3v2TagAndKeepsInfoInSync() throws {
+        let url = try fixture("basic.wav")
+        let loaded = try edit(url) { tags, format in
+            tags.set(.title, to: "Renamed Wav", format: format)
+            tags.set(.trackTotal, to: "10", format: format)
+        }
+        // New ID3v2 tags are written as ID3v2.4, like in MP3s.
+        #expect(loaded.info.id3v2Version == 4)
+        #expect(loaded.snapshot.value(of: .title) == "Renamed Wav")
+        #expect(loaded.snapshot.value(of: .trackNumber) == "8")
+        #expect(loaded.snapshot.value(of: .trackTotal) == "10")
+        #expect(loaded.snapshot.value(of: .artist) == "Wav Artist")
+        // The INFO chunk, which other apps may read instead, has the new title too.
+        let data = try Data(contentsOf: url)
+        let info = try #require(data.range(of: Data("INFO".utf8)))
+        #expect(data[info.lowerBound...].range(of: Data("Renamed Wav".utf8)) != nil)
+    }
+
+    @Test(arguments: ["basic.wav", "basic.aiff"])
+    func wavAndAiffFollowTheID3v2Setting(_ name: String) throws {
+        let url = try fixture(name)
+        let loaded = try edit(url, id3v2Version: .v2_3) { tags, format in
+            tags.set(.title, to: "ID3v2.3", format: format)
+        }
+        #expect(loaded.info.id3v2Version == 3)
+        // Kept from then on.
+        let kept = try edit(url) { tags, format in tags.set(.title, to: "Still 2.3", format: format) }
+        #expect(kept.info.id3v2Version == 3)
     }
 
     @Test func keepsCustomTagsInM4A() throws {
@@ -448,7 +561,10 @@ struct ArtworkTests {
         #expect(try TagIO.data(of: artwork[0], in: url) == fixtureData("blue.jpg"))
     }
 
-    @Test(arguments: ["basic.mp3", "cover.mp3", "basic.flac", "basic.m4a", "cover.m4a", "basic.ogg", "basic.opus"])
+    @Test(arguments: [
+        "basic.mp3", "cover.mp3", "basic.flac", "basic.m4a", "cover.m4a", "basic.ogg", "basic.opus",
+        "basic.wav", "basic.aiff", "basic.wv", "basic.ape", "basic.wma",
+    ])
     func setsCover(_ name: String) throws {
         let url = try fixture(name)
         let blue = try newArtwork()
@@ -459,8 +575,9 @@ struct ArtworkTests {
         #expect(reloaded.snapshot.primaryArtwork?.digest == blue.digest)
     }
 
-    @Test func oggKeepsOtherPictureTypes() throws {
-        let url = try fixture("basic.ogg")
+    @Test(arguments: ["basic.ogg", "basic.wav", "basic.aiff", "basic.wv", "basic.ape", "basic.wma"])
+    func keepsOtherPictureTypes(_ name: String) throws {
+        let url = try fixture(name)
         var back = try newArtwork()
         back.type = .backCover
         try edit(url) { tags, _ in tags.artwork = [back] }
@@ -473,9 +590,12 @@ struct ArtworkTests {
         #expect(reloaded.snapshot.artwork.map(\.digest) == [front.digest, back.digest])
     }
 
-    @Test(arguments: ["cover.mp3", "cover.flac", "cover.m4a"])
+    @Test(arguments: ["cover.mp3", "cover.flac", "cover.m4a", "basic.wav", "basic.aiff", "basic.wv", "basic.ape", "basic.wma"])
     func removesArtwork(_ name: String) throws {
         let url = try fixture(name)
+        if try TagIO.read(url).snapshot.artwork.isEmpty {
+            try edit(url) { tags, format in tags = tags.applying(.setFrontCover(try newArtwork()), format: format) }
+        }
         let reloaded = try edit(url) { tags, format in
             tags = tags.applying(.removeArtwork, format: format)
         }

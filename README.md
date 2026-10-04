@@ -2,7 +2,7 @@
 
 A small, free (MIT) and native macOS app for editing the tags and cover art of
 audio files, including many files at once: FLAC, MP3, M4A (AAC and Apple
-Lossless), Ogg Vorbis and Opus.
+Lossless), Ogg Vorbis, Opus, WAV, AIFF, WavPack, Monkey's Audio (APE) and WMA.
 
 ## Features
 
@@ -75,9 +75,18 @@ Lossless), Ogg Vorbis and Opus.
   overwrite a file that another app changed after it was loaded.
 - **Leaves everything else alone:** tags you don't edit (MusicBrainz IDs,
   ReplayGain, …), the audio data, and an existing ID3v1 tag are preserved.
-  Taggart never adds an ID3v1 tag. MP3 files keep their ID3v2 version unless
-  you choose ID3v2.3 or 2.4 in Settings. Settings can also keep files'
-  modification dates when saving.
+  Taggart never adds an ID3v1 tag. MP3, WAV and AIFF files keep their ID3v2
+  version unless you choose ID3v2.3 or 2.4 in Settings. Settings can also keep
+  files' modification dates when saving.
+- **Format notes:**
+  - WAV files get an ID3v2 tag, and their RIFF INFO tag, which some apps read
+    instead, is kept in step with it (INFO holds only the common tags).
+  - WavPack and Monkey's Audio use APEv2 tags, which hold one front and one
+    back cover.
+  - WMA keeps one value per tag: several artists or genres are stored as one
+    value, separated by "; ". WMA can only store the tags it knows (the common
+    ones, MusicBrainz IDs, ReplayGain, lyrics, …); saving any other tag fails
+    and names it, leaving the file unchanged.
 
 ## Building
 
@@ -134,7 +143,7 @@ with Xcode) the app uses a small `@ViewState` wrapper instead of `@State`.
 | `Sources/TagBridge` | A small C API over [TagLib](https://taglib.org), so Swift needs no C++ interop |
 | `Sources/TaggartCore` | UI-free model: reading and writing tags, field mapping, artwork, bulk edits and undo, safe saving |
 | `Sources/Taggart` | The SwiftUI app |
-| `Tests/TaggartCoreTests` | Round-trip tests against tiny fixture files (`scripts/make-fixtures.sh` regenerates them with ffmpeg and metaflac) |
+| `Tests/TaggartCoreTests` | Round-trip tests against tiny fixture files (`scripts/make-fixtures.sh` regenerates them with ffmpeg, metaflac and python3) |
 | `scripts/make-icon.swift` | Draws `Resources/AppIcon.icns` |
 
 ## License
