@@ -14,10 +14,19 @@ struct PatternToken: Identifiable {
     } + [PatternToken(label: "Folder /", placeholder: "/", help: "Insert “/” to start a new folder level")]
 
     /// For reading tags from file names.
-    static let tagsFromName = TagsFromNamePattern.tokens.map {
+    static let tagsFromName = splitTag
+        + [PatternToken(label: "Folder /", placeholder: "/", help: "Insert “/” to read folder names too")]
+
+    /// For reading tags from a tag (Format Tags' Split a Tag).
+    static let splitTag = TagsFromNamePattern.tokens.map {
         PatternToken(label: $0.label, placeholder: $0.placeholder,
                      help: $0.name == "skip" ? "Insert %skip% to skip over text you don't want" : "Insert \($0.placeholder)")
-    } + [PatternToken(label: "Folder /", placeholder: "/", help: "Insert “/” to read folder names too")]
+    }
+
+    /// For setting a tag from other tags (Format Tags' Set a Tag).
+    static let tagValue = RenamePattern.tokens.map {
+        PatternToken(label: $0.label, placeholder: $0.placeholder, help: "Insert \($0.placeholder)")
+    } + [PatternToken(label: "File Name", placeholder: "%filename%", help: "Insert %filename%: the file's name without its extension")]
 }
 
 /// The pattern field and the placeholder buttons. On macOS 15 and later the
@@ -26,13 +35,14 @@ struct PatternToken: Identifiable {
 struct PatternEditor: View {
     @Binding var text: String
     let tokens: [PatternToken]
+    var prompt = "%track% - %title%"
 
     var body: some View {
         if #available(macOS 15, *) {
-            CursorPatternEditor(text: $text, tokens: tokens)
+            CursorPatternEditor(text: $text, tokens: tokens, prompt: prompt)
         } else {
             VStack(alignment: .leading, spacing: 8) {
-                PatternField(text: $text)
+                PatternField(text: $text, prompt: prompt)
                 PlaceholderButtons(tokens: tokens) { text += $0 }
             }
         }
@@ -43,12 +53,13 @@ struct PatternEditor: View {
 private struct CursorPatternEditor: View {
     @Binding var text: String
     let tokens: [PatternToken]
+    let prompt: String
     @ViewState private var selection: TextSelection?
     @FocusState private var isFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            PatternField(text: $text, selection: $selection)
+            PatternField(text: $text, prompt: prompt, selection: $selection)
                 .focused($isFocused)
             PlaceholderButtons(tokens: tokens, insert: insert)
         }
@@ -70,24 +81,27 @@ private struct CursorPatternEditor: View {
 
 private struct PatternField: View {
     @Binding var text: String
+    let prompt: String
     var selection: Any?
 
-    init(text: Binding<String>) {
+    init(text: Binding<String>, prompt: String) {
         _text = text
+        self.prompt = prompt
     }
 
     @available(macOS 15, *)
-    init(text: Binding<String>, selection: Binding<TextSelection?>) {
+    init(text: Binding<String>, prompt: String, selection: Binding<TextSelection?>) {
         _text = text
+        self.prompt = prompt
         self.selection = selection
     }
 
     var body: some View {
         Group {
             if #available(macOS 15, *), let selection = selection as? Binding<TextSelection?> {
-                TextField("Pattern", text: $text, selection: selection, prompt: Text(verbatim: "%track% - %title%"))
+                TextField("Pattern", text: $text, selection: selection, prompt: Text(verbatim: prompt))
             } else {
-                TextField("Pattern", text: $text, prompt: Text(verbatim: "%track% - %title%"))
+                TextField("Pattern", text: $text, prompt: Text(verbatim: prompt))
             }
         }
         .textFieldStyle(.roundedBorder)

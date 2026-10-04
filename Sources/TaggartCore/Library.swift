@@ -313,37 +313,63 @@ public final class Library {
         }
     }
 
-    // MARK: Quick actions
+    // MARK: Format Tags
 
-    /// The tags a quick action would change in the files in `ids`, in list
-    /// order. Fails if the action itself is invalid (e.g. a bad regex).
-    public func planQuickAction(_ action: QuickAction, fields: [LogicalField],
-                                in ids: Set<AudioFileItem.ID>) -> Result<[QuickActionChange], QuickActionError> {
-        action.transform().map { transform in
-            items(ids).flatMap { item in
-                let changed = item.edited.applying(transform, to: fields)
-                return fields.compactMap { field -> QuickActionChange? in
-                    let before = item.edited.value(of: field)
-                    let after = changed.value(of: field)
-                    return before == after ? nil
-                        : QuickActionChange(itemID: item.id, url: item.url, field: field, before: before, after: after)
+    /// What running the steps on the files in `ids` (in this order) would do.
+    /// Fails if a step can't be used (e.g. a bad regular expression).
+    public func planFormat(_ steps: [FormatStep], in ids: [AudioFileItem.ID]) -> Result<FormatPlan, FormatStepError> {
+        FormatProgram.compile(steps).map { program in
+            var plan = FormatPlan()
+            var changes: [AudioFileItem.ID: [FormatChange]] = [:]
+            var renames: [RenamePlan] = []
+            let items = ids.compactMap { itemsByID[$0] }
+            for item in items {
+                let name = item.url.deletingPathExtension().lastPathComponent
+                var state = FormatState(tags: item.edited, name: name, format: item.info.format)
+                program.run(&state)
+                if state.tags != item.edited {
+                    plan.tags[item.id] = state.tags
+                    changes[item.id] = FormatPlan.differences(from: item.edited, to: state.tags).map {
+                        FormatChange(itemID: item.id, url: item.url, label: $0.label, before: $0.before, after: $0.after)
+                    }
+                }
+                if state.name != name {
+                    let cleaned = RenamePattern.clean(state.name)
+                    let fileExtension = item.url.pathExtension
+                    let path = cleaned.isEmpty ? "" : fileExtension.isEmpty ? cleaned : "\(cleaned).\(fileExtension)"
+                    renames.append(renamePlan(for: item, path: path, base: item.url.deletingLastPathComponent(),
+                                              emptyReason: "The new name would be empty."))
                 }
             }
+            plan.renames = Self.skippingDuplicates(renames)
+            for rename in plan.renames where rename.status != .unchanged {
+                guard let item = itemsByID[rename.id] else { continue }
+                var problem: String?
+                if case let .skipped(reason) = rename.status {
+                    problem = reason
+                }
+                changes[item.id, default: []].append(FormatChange(
+                    itemID: item.id, url: item.url, label: "File Name", before: item.url.lastPathComponent,
+                    after: rename.relativePath, problem: problem
+                ))
+            }
+            plan.changes = items.flatMap { changes[$0.id] ?? [] }
+            return plan
         }
     }
 
-    /// Applies a quick action to the files in `ids`, as one undoable edit.
-    public func applyQuickAction(_ action: QuickAction, fields: [LogicalField], to ids: Set<AudioFileItem.ID>,
-                                 undoManager: UndoManager?) {
-        guard case let .success(transform) = action.transform() else { return }
-        var snapshots: [AudioFileItem.ID: TagSnapshot] = [:]
-        for item in items(ids) {
-            let changed = item.edited.applying(transform, to: fields)
-            if changed != item.edited {
-                snapshots[item.id] = changed
-            }
+    /// Makes the planned changes, as one undoable action: tag changes are
+    /// pending until saved, like other edits; renames happen right away.
+    /// Returns an error message for each file that couldn't be renamed.
+    @discardableResult
+    public func applyFormat(_ plan: FormatPlan, undoManager: UndoManager?) -> [String] {
+        undoManager?.beginUndoGrouping()
+        defer {
+            undoManager?.setActionName("Format Tags")
+            undoManager?.endUndoGrouping()
         }
-        setEdited(snapshots, actionName: action.actionName, undoManager: undoManager)
+        setEdited(plan.tags, actionName: "Format Tags", undoManager: undoManager)
+        return rename(plan.renames, undoManager: undoManager)
     }
 
     // MARK: Track numbers
@@ -469,32 +495,40 @@ public final class Library {
     /// or with each other are skipped rather than renamed.
     public func planRename(_ ids: Set<AudioFileItem.ID>, pattern: RenamePattern, baseFolder: URL? = nil) -> [RenamePlan] {
         guard pattern.error == nil else { return [] }
-        var plans = items(ids).map { item in
+        let plans = items(ids).map { item in
             let (path, missing) = pattern.relativePath(for: item.edited, extension: item.url.pathExtension)
-            let base = baseFolder ?? item.url.deletingLastPathComponent()
-            let destination = base.appendingPathComponent(path)
-            let status: RenamePlan.Status =
-                if path.isEmpty {
-                    .skipped("No \(missing.map(\.label).joined(separator: " or ")) in this file's tags, which leaves a name empty.")
-                } else if destination.standardizedFileURL.path == item.url.standardizedFileURL.path {
-                    .unchanged
-                } else if FileRenamer.exists(destination) && !FileRenamer.isSameFile(item.url, destination) {
-                    .skipped("A file with this name already exists.")
-                } else {
-                    .rename
-                }
-            return RenamePlan(
-                id: item.id,
-                source: item.url,
-                destination: destination,
-                status: status,
-                relativePath: path,
-                missing: missing
+            return renamePlan(
+                for: item, path: path, base: baseFolder ?? item.url.deletingLastPathComponent(), missing: missing,
+                emptyReason: "No \(missing.map(\.label).joined(separator: " or ")) in this file's tags, which leaves a name empty."
             )
         }
+        return Self.skippingDuplicates(plans)
+    }
 
+    /// Renaming one file to `path` (relative to `base`): skipped if the path
+    /// is empty or the name is taken by another file.
+    private func renamePlan(for item: AudioFileItem, path: String, base: URL, missing: [LogicalField] = [],
+                            emptyReason: String) -> RenamePlan {
+        let destination = base.appendingPathComponent(path)
+        let status: RenamePlan.Status =
+            if path.isEmpty {
+                .skipped(emptyReason)
+            } else if destination.standardizedFileURL.path == item.url.standardizedFileURL.path {
+                .unchanged
+            } else if FileRenamer.exists(destination) && !FileRenamer.isSameFile(item.url, destination) {
+                .skipped("A file with this name already exists.")
+            } else {
+                .rename
+            }
+        return RenamePlan(id: item.id, source: item.url, destination: destination, status: status,
+                          relativePath: path, missing: missing)
+    }
+
+    /// Skips renames that would give several files the same name.
+    private static func skippingDuplicates(_ plans: [RenamePlan]) -> [RenamePlan] {
         // Default APFS volumes ignore case and Unicode normalization.
         func key(_ url: URL) -> String { url.path.precomposedStringWithCanonicalMapping.lowercased() }
+        var plans = plans
         var counts: [String: Int] = [:]
         for plan in plans where plan.status == .rename {
             counts[key(plan.destination), default: 0] += 1

@@ -112,44 +112,169 @@ struct TagsFromNameTests {
     }
 }
 
-@Suite("Quick actions")
-struct QuickActionTests {
-    func run(_ action: QuickAction, _ text: String) -> String? {
-        guard case let .success(transform) = action.transform() else { return nil }
-        return transform(text)
+@Suite("Format steps")
+struct FormatStepTests {
+    func step(_ kind: FormatStep.Kind, _ configure: (inout FormatStep) -> Void = { _ in }) -> FormatStep {
+        var step = FormatStep(kind)
+        configure(&step)
+        return step
     }
 
-    @Test func changesCase() {
-        let title = QuickAction.changeCase(.titleCase)
-        #expect(run(title, "the BEST of me") == "The Best Of Me")
-        #expect(run(title, "don't stop (live version)") == "Don't Stop (Live Version)")
-        #expect(run(title, "hip-hop/r&b") == "Hip-Hop/R&b")
-        #expect(run(title, "the 2nd time") == "The 2nd Time")
-        #expect(run(title, "ääni ja öljy") == "Ääni Ja Öljy")
-        #expect(run(title, "r.e.m. [remastered]") == "R.E.M. [Remastered]")
+    /// Runs steps on a file with these fields (and file name).
+    func run(_ steps: [FormatStep], _ fields: [String: [String]], name: String = "file",
+             format: AudioFormat = .flac) -> FormatState? {
+        guard case let .success(program) = FormatProgram.compile(steps) else { return nil }
+        var state = FormatState(tags: TagSnapshot(fields: fields), name: name, format: format)
+        program.run(&state)
+        return state
+    }
 
-        #expect(run(.changeCase(.sentenceCase), "THE SONG OF THE YEAR") == "The song of the year")
-        #expect(run(.changeCase(.sentenceCase), "(intro) PART ONE") == "(Intro) part one")
-        #expect(run(.changeCase(.uppercase), "Ääni") == "ÄÄNI")
-        #expect(run(.changeCase(.lowercase), "ÄÄNI") == "ääni")
+    func replace(_ find: String, _ replacement: String, matchCase: Bool = false, regex: Bool = false) -> FormatStep {
+        step(.replace) {
+            $0.find = find
+            $0.replacement = replacement
+            $0.matchCase = matchCase
+            $0.regularExpression = regex
+        }
     }
 
     @Test func replacesText() {
-        #expect(run(.replace(find: "feat.", with: "ft.", matchCase: false, regularExpression: false), "A FEAT. B") == "A ft. B")
-        #expect(run(.replace(find: "feat.", with: "ft.", matchCase: true, regularExpression: false), "A FEAT. B") == "A FEAT. B")
+        let title = ["TITLE": ["A FEAT. B"]]
+        #expect(run([replace("feat.", "ft.")], title)?.tags.fields["TITLE"] == ["A ft. B"])
+        #expect(run([replace("feat.", "ft.", matchCase: true)], title)?.tags.fields["TITLE"] == ["A FEAT. B"])
         // Regular expressions, with groups; "." is a wildcard there.
-        #expect(run(.replace(find: "^(\\d+)\\. ", with: "$1 - ", matchCase: false, regularExpression: true), "01. Song") == "01 - Song")
-        #expect(run(.replace(find: "\\s*\\(remaster(ed)?\\)", with: "", matchCase: false, regularExpression: true), "Song (Remastered)") == "Song")
+        #expect(run([replace("^(\\d+)\\. ", "$1 - ", regex: true)], ["TITLE": ["01. Song"]])?.tags.fields["TITLE"] == ["01 - Song"])
+        #expect(run([replace("\\s*\\(remaster(ed)?\\)", "", regex: true)], ["TITLE": ["Song (Remastered)"]])?.tags.fields["TITLE"] == ["Song"])
     }
 
-    @Test func rejectsInvalidActions() {
-        #expect(QuickAction.replace(find: "", with: "x", matchCase: false, regularExpression: false).transform().isFailure)
-        #expect(QuickAction.replace(find: "([", with: "x", matchCase: false, regularExpression: true).transform().isFailure)
+    func problem(_ steps: [FormatStep]) -> String? {
+        if case let .failure(error) = FormatProgram.compile(steps) { error.message } else { nil }
+    }
+
+    @Test func rejectsUnusableSteps() {
+        #expect(problem([replace("", "x")]) == "Enter the text to find.")
+        #expect(problem([FormatStep(.cleanUpSpaces), replace("([", "x", regex: true)]) == "Step 2: The regular expression isn't valid.")
+        #expect(FormatProgram.compile([step(.setTag) { $0.pattern = " " }]).isFailure)
+        #expect(FormatProgram.compile([step(.splitTag) { $0.splitPattern = "no placeholders" }]).isFailure)
+        #expect(FormatProgram.compile([step(.removeTags) { $0.tagNames = " , " }]).isFailure)
+        #expect(problem([step(.setTag) { $0.destination = .tag("") }]) == "Enter a tag name.")
     }
 
     @Test func cleansUpSpaces() {
-        #expect(run(.cleanUpSpaces, "  Too   many \t spaces  ") == "Too many spaces")
-        #expect(run(.cleanUpSpaces, "Line one\nLine  two ") == "Line one\nLine two")
+        let spaces = FormatStep(.cleanUpSpaces)
+        #expect(run([spaces], ["TITLE": ["  Too   many \t spaces  "]])?.tags.fields["TITLE"] == ["Too many spaces"])
+        #expect(run([spaces], ["COMMENT": ["Line one\nLine  two "]])?.tags.fields["COMMENT"] == ["Line one\nLine two"])
+    }
+
+    @Test func changesTheChosenTarget() {
+        let fields = ["TITLE": ["a song"], "ARTIST": ["an artist"], "ARTISTSORT": ["artist, an"], "TRACKNUMBER": ["1"]]
+        let all = run([FormatStep(.changeCase)], fields, name: "a file")!
+        #expect(all.tags.fields["TITLE"] == ["A Song"])
+        #expect(all.tags.fields["ARTIST"] == ["An Artist"])
+        // Tags outside the text fields, and the file name, only when chosen.
+        #expect(all.tags.fields["ARTISTSORT"] == ["artist, an"])
+        #expect(all.name == "a file")
+
+        let one = run([step(.changeCase) { $0.target = .field(.artist) }], fields)!
+        #expect(one.tags.fields["TITLE"] == ["a song"])
+        #expect(one.tags.fields["ARTIST"] == ["An Artist"])
+
+        let raw = run([step(.changeCase) { $0.target = .tag("ARTISTSORT"); $0.caseStyle = .uppercase }], fields)!
+        #expect(raw.tags.fields["ARTISTSORT"] == ["ARTIST, AN"])
+
+        let name = run([step(.changeCase) { $0.target = .fileName }], fields, name: "01 - a song")!
+        #expect(name.name == "01 - A Song")
+        #expect(name.tags.fields == fields)
+    }
+
+    @Test func emptiedValuesAreRemoved() {
+        let state = run([replace("Ambient", "", matchCase: true)], ["GENRE": ["Ambient"], "TITLE": ["Ambient Song"]])!
+        #expect(state.tags.fields["GENRE"] == nil)
+        #expect(state.tags.fields["TITLE"] == [" Song"])
+    }
+
+    @Test func setsATagFromAPattern() {
+        let fields = ["ARTIST": ["Band"], "TITLE": ["Song"], "TRACKNUMBER": ["3/12"], "ALBUMARTIST": ["Other"]]
+        let albumArtist = step(.setTag) // Album Artist = %artist%, only if empty
+        #expect(run([albumArtist], fields)?.tags.fields["ALBUMARTIST"] == ["Other"])
+        #expect(run([albumArtist], ["ARTIST": ["A", "B"]])?.tags.fields["ALBUMARTIST"] == ["A", "B"])
+        let always = step(.setTag) { $0.onlyIfEmpty = false }
+        #expect(run([always], fields)?.tags.fields["ALBUMARTIST"] == ["Band"])
+
+        // Values as they are (track 3, not 03); the file name; any tag; plain text.
+        let title = step(.setTag) {
+            $0.destination = .field(.title)
+            $0.pattern = "%track%. %title% [%filename%] %MOOD%%nothing%"
+            $0.onlyIfEmpty = false
+        }
+        let result = run([title], fields.merging(["MOOD": ["Calm"]]) { $1 }, name: "song file")!
+        #expect(result.tags.fields["TITLE"] == ["3. Song [song file] Calm"])
+        #expect(run([step(.setTag) { $0.destination = .tag("MEDIA"); $0.pattern = "Vinyl" }], fields)?.tags.fields["MEDIA"] == ["Vinyl"])
+        // A pattern that comes out empty changes nothing.
+        let empty = step(.setTag) { $0.destination = .field(.genre); $0.pattern = "%composer%"; $0.onlyIfEmpty = false }
+        #expect(run([empty], ["GENRE": ["Jazz"]])?.tags.fields["GENRE"] == ["Jazz"])
+        // File names are cleaned.
+        let rename = step(.setTag) { $0.destination = .fileName; $0.pattern = "%artist%: %title%"; $0.onlyIfEmpty = false }
+        #expect(run([rename], fields)?.name == "Band - Song")
+        // Separators an empty placeholder leaves at either end are dropped.
+        let numbered = step(.setTag) { $0.destination = .fileName; $0.pattern = "%track% %artist% - %title%"; $0.onlyIfEmpty = false }
+        #expect(run([numbered], ["TITLE": ["Song"]])?.name == "Song")
+        #expect(run([numbered], ["TITLE": ["Song"], "TRACKNUMBER": ["2"]])?.name == "2  - Song")
+    }
+
+    @Test func splitsATag() {
+        let split = FormatStep(.splitTag) // Title → %artist% - %title%
+        let state = run([split], ["TITLE": ["Band - Song - Live"]])!
+        #expect(state.tags.fields["ARTIST"] == ["Band"])
+        #expect(state.tags.fields["TITLE"] == ["Song - Live"])
+        // No match: nothing changes.
+        #expect(run([split], ["TITLE": ["Just a Song"]])?.tags.fields == ["TITLE": ["Just a Song"]])
+        // "/" is ordinary text; numbers are read as numbers, in the file's format.
+        let numbers = step(.splitTag) { $0.source = .tag("COMMENT"); $0.splitPattern = "Track %track%/%tracktotal%" }
+        let mp3 = run([numbers], ["COMMENT": ["Track 03/12"]], format: .mp3)!
+        #expect(mp3.tags.fields["TRACKNUMBER"] == ["3/12"])
+    }
+
+    @Test func removesTags() {
+        let fields = ["TITLE": ["Song"], "COMMENT": ["Ripped"], "ENCODER": ["Lavf"], "TRACKNUMBER": ["3"], "TRACKTOTAL": ["12"],
+                      "TOTALTRACKS": ["12"], "MOOD": ["Calm"]]
+        let removed = run([FormatStep(.removeTags)], fields)!.tags.fields // Comment, ENCODER, ENCODEDBY, ENCODING
+        #expect(removed.keys.sorted() == ["MOOD", "TITLE", "TOTALTRACKS", "TRACKNUMBER", "TRACKTOTAL"])
+        // Fields by name cover every key they're stored under.
+        let total = run([step(.removeTags) { $0.tagNames = "Track Total" }], fields)!.tags.fields
+        #expect(total["TRACKTOTAL"] == nil && total["TOTALTRACKS"] == nil && total["TRACKNUMBER"] == ["3"])
+        let mp3Total = run([step(.removeTags) { $0.tagNames = "track total" }], ["TRACKNUMBER": ["3/12"]], format: .mp3)!
+        #expect(mp3Total.tags.fields["TRACKNUMBER"] == ["3"])
+
+        // Keeping a total keeps the number's tag too, which can hold the total ("3/12").
+        let kept = run([step(.removeTags) { $0.tagNames = "Title, Track Total, mood"; $0.keepsListedTags = true }], fields)!
+        #expect(kept.tags.fields.keys.sorted() == ["MOOD", "TITLE", "TOTALTRACKS", "TRACKNUMBER", "TRACKTOTAL"])
+        let keptTrack = run([step(.removeTags) { $0.tagNames = "Track"; $0.keepsListedTags = true }], fields)!
+        #expect(keptTrack.tags.fields.keys.sorted() == ["TRACKNUMBER"])
+    }
+
+    @Test func runsStepsInOrder() {
+        let steps = [
+            FormatStep(.splitTag),
+            FormatStep(.cleanUpSpaces),
+            step(.changeCase) { $0.target = .textTags },
+            step(.setTag) { $0.destination = .fileName; $0.pattern = "%artist% - %title%"; $0.onlyIfEmpty = false },
+        ]
+        let state = run(steps, ["TITLE": ["the  band -  a  song"]], name: "track01")!
+        #expect(state.tags.fields["ARTIST"] == ["The Band"])
+        #expect(state.tags.fields["TITLE"] == ["A Song"])
+        #expect(state.name == "The Band - A Song")
+    }
+
+    @Test func savesAndLoadsSteps() throws {
+        let list = FormatStepList(name: "Tidy", steps: [step(.replace) { $0.find = "x"; $0.target = .tag("MOOD") }, FormatStep(.removeTags)])
+        let decoded = try JSONDecoder().decode(FormatStepList.self, from: JSONEncoder().encode(list))
+        #expect(decoded == list)
+        // Steps saved without newer settings get the defaults.
+        let old = try JSONDecoder().decode(FormatStep.self, from: Data(#"{"kind":"changeCase","caseStyle":"uppercase"}"#.utf8))
+        #expect(old.caseStyle == .uppercase)
+        #expect(old.target == .textTags)
+        #expect(old.keptWords.contains("DJ"))
     }
 }
 
@@ -372,22 +497,22 @@ struct LibraryTests {
         #expect(library.item(ids[2])?.edited.fields["ARTISTS"] == nil)
     }
 
-    @Test func appliesQuickActionsToSelectedFields() async throws {
+    @Test func plansAndAppliesFormatSteps() async throws {
         let (library, ids, _) = try await loadedLibrary()
-        let all = Set(ids)
-        let upper = QuickAction.changeCase(.uppercase)
+        var upper = FormatStep(.changeCase)
+        upper.caseStyle = .uppercase
+        upper.target = .field(.artist)
 
-        // Only the chosen fields; multiple values (basic.flac's two artists) each change.
-        let plan = try library.planQuickAction(upper, fields: [.artist], in: all).get()
-        #expect(plan.map(\.field) == [.artist, .artist])
-        #expect(plan.first?.before == "Artist One; Artist Two")
-        #expect(plan.first?.after == "ARTIST ONE; ARTIST TWO")
+        // Only the chosen field; multiple values (basic.flac's two artists) each change.
+        let plan = try library.planFormat([upper], in: ids).get()
+        #expect(plan.changes.map(\.label) == ["Artist", "Artist"])
+        #expect(plan.changes.first?.before == "Artist One; Artist Two")
+        #expect(plan.changes.first?.after == "ARTIST ONE; ARTIST TWO")
+        #expect(plan.fileCount == 2)
 
         let undo = undoManager()
-        undo.beginUndoGrouping()
-        library.applyQuickAction(upper, fields: [.artist], to: all, undoManager: undo)
-        undo.endUndoGrouping()
-        #expect(undo.undoActionName == "Change Case")
+        library.applyFormat(plan, undoManager: undo)
+        #expect(undo.undoActionName == "Format Tags")
         #expect(library.item(ids[0])?.edited.fields["ARTIST"] == ["ARTIST ONE", "ARTIST TWO"])
         #expect(library.item(ids[1])?.artist == "MP3 ARTIST")
         #expect(library.item(ids[0])?.title == "Flac Title")
@@ -395,119 +520,67 @@ struct LibraryTests {
 
         undo.undo()
         #expect(library.item(ids[0])?.edited.fields["ARTIST"] == ["Artist One", "Artist Two"])
+        // Nothing to change means nothing planned; a bad step fails.
+        #expect(try library.planFormat([upper], in: [ids[2]]).get().changes.isEmpty)
+        #expect(library.planFormat([FormatStep(.replace)], in: ids).isFailure)
     }
 
-    @Test func quickActionsCanEmptyATag() async throws {
+    @Test func listsChangesToAnyTag() async throws {
         let (library, ids, _) = try await loadedLibrary()
-        let remove = QuickAction.replace(find: "Ambient", with: "", matchCase: true, regularExpression: false)
-        library.applyQuickAction(remove, fields: QuickAction.fields, to: [ids[0]], undoManager: nil)
-        #expect(library.item(ids[0])?.edited.fields["GENRE"] == nil)
-        // Nothing to change means nothing planned.
-        #expect(try library.planQuickAction(remove, fields: QuickAction.fields, in: [ids[0]]).get().isEmpty)
-        #expect(library.planQuickAction(.replace(find: "", with: "", matchCase: false, regularExpression: false),
-                                        fields: [.title], in: [ids[0]]).isFailure)
+        var remove = FormatStep(.removeTags)
+        remove.tagNames = "CUSTOM_KEY, Track Total"
+        let plan = try library.planFormat([remove], in: [ids[0]]).get()
+        #expect(plan.changes.map(\.label) == ["Track Total", "CUSTOM_KEY"])
+        #expect(plan.changes.map(\.before) == ["12", "keep me"])
+        #expect(plan.changes.map(\.after) == ["", ""])
     }
 
-    @Test func numbersTracksInListOrderWithUndo() async throws {
-        let (library, ids, _) = try await loadedLibrary()
-        // basic.flac is track 3 of 12, basic.mp3 "5/9"; cover.flac has no number.
-        let order = [ids[2], ids[0], ids[1]]
-        let numbering = TrackNumbering(setsTotal: true)
-        let plan = library.planTrackNumbers(order, numbering: numbering)
-        #expect(plan.map(\.before) == ["", "3 of 12", "5 of 9"])
-        #expect(plan.map(\.after) == ["1 of 3", "2 of 3", "3 of 3"])
+    @Test func formatsFileNamesWithUndo() async throws {
+        let (library, ids, urls) = try await loadedLibrary()
+        let folder = urls[0].deletingLastPathComponent()
+        var upper = FormatStep(.changeCase)
+        upper.caseStyle = .uppercase
+        upper.target = .fileName
+        var retitle = FormatStep(.setTag)
+        retitle.destination = .field(.title)
+        retitle.pattern = "%filename%"
+        retitle.onlyIfEmpty = false
+
+        let plan = try library.planFormat([upper, retitle], in: ids).get()
+        #expect(plan.renames.map(\.relativePath) == ["BASIC.flac", "BASIC.mp3", "COVER.flac"])
+        #expect(plan.changes.filter { $0.label == "File Name" }.map(\.after) == ["BASIC.flac", "BASIC.mp3", "COVER.flac"])
+        // Later steps see the new name.
+        #expect(plan.changes.first { $0.label == "Title" }?.after == "BASIC")
 
         let undo = undoManager()
-        undo.beginUndoGrouping()
-        library.applyTrackNumbers(order, numbering: numbering, undoManager: undo)
-        undo.endUndoGrouping()
-        #expect(undo.undoActionName == "Number Tracks")
-        // Each format stores the numbers its own way.
-        #expect(library.item(ids[0])?.edited.fields["TRACKNUMBER"] == ["2"])
-        #expect(library.item(ids[0])?.edited.fields["TRACKTOTAL"] == ["3"])
-        #expect(library.item(ids[1])?.edited.fields["TRACKNUMBER"] == ["3/3"])
-        #expect(library.item(ids[2])?.edited.fields["TRACKNUMBER"] == ["1"])
+        #expect(library.applyFormat(plan, undoManager: undo).isEmpty)
+        #expect(try names(in: folder) == ["BASIC.flac", "BASIC.mp3", "COVER.flac"])
+        #expect(library.item(ids[0])?.title == "BASIC")
+        #expect(undo.undoActionName == "Format Tags")
 
+        // One undo puts back both the names and the tags.
         undo.undo()
-        #expect(library.dirtyItems.isEmpty)
-
-        // Without setting totals, the files' totals stay.
-        let kept = library.planTrackNumbers(order, numbering: TrackNumbering(padsWithZeros: true))
-        #expect(kept.map(\.after) == ["01", "02 of 12", "03 of 9"])
+        #expect(try names(in: folder) == ["basic.flac", "basic.mp3", "cover.flac"])
+        #expect(library.item(ids[0])?.title == "Flac Title")
+        #expect(library.item(ids[0])?.url.lastPathComponent == "basic.flac")
     }
 
-    @Test func copiesTagsAndCoversBetweenFormats() async throws {
-        let (library, ids, urls) = try await loadedLibrary()
-        // cover.flac: just a title, with a front and a back cover.
-        let copied = try await library.copyTags([ids[2]])
-        #expect(copied.files.count == 1)
-        #expect(copied.files[0].artwork.allSatisfy { if case .new = $0.source { true } else { false } })
-
-        let undo = undoManager()
-        undo.beginUndoGrouping()
-        library.pasteTags(copied, to: [ids[1]], undoManager: undo)
-        undo.endUndoGrouping()
-        #expect(undo.undoActionName == "Paste Tags")
-        let mp3 = try #require(library.item(ids[1]))
-        #expect(mp3.edited.fields == ["TITLE": ["Covered"]])
-        #expect(mp3.edited.artwork.map(\.type) == [.frontCover, .backCover])
-        // Pasting onto the file the tags came from changes nothing.
-        library.pasteTags(copied, to: [ids[2]], undoManager: nil)
-        #expect(library.item(ids[2])?.isDirty == false)
-
-        #expect(await library.save(undoManager: nil).isEmpty)
-        let saved = try TagIO.read(urls[1]).snapshot
-        #expect(saved.fields == ["TITLE": ["Covered"]])
-        #expect(saved.artwork.map(\.digest) == library.item(ids[2])?.edited.artwork.map(\.digest))
-    }
-
-    @Test func pastesNumbersTheWayEachFormatStoresThem() async throws {
-        let (library, ids, urls) = try await loadedLibrary()
-        let m4aURL = try fixture("basic.m4a")
-        await library.add([m4aURL])
-        let m4a = try #require(library.items.first { $0.url.lastPathComponent == "basic.m4a" })
-
-        // basic.flac (track 3 of 12, disc 1 of 2, a custom tag) onto basic.mp3 and basic.m4a.
-        let copied = try await library.copyTags([ids[0]])
-        library.pasteTags(copied, to: [ids[1], m4a.id], undoManager: nil)
-        let mp3 = try #require(library.item(ids[1])).edited
-        #expect(mp3.fields["TRACKNUMBER"] == ["3/12"])
-        #expect(mp3.fields["DISCNUMBER"] == ["1/2"])
-        #expect(mp3.fields["TRACKTOTAL"] == nil)
-        #expect(mp3.fields["ARTIST"] == ["Artist One", "Artist Two"])
-
-        #expect(await library.save(undoManager: nil).isEmpty)
-        for url in [urls[1], m4a.url] {
-            let saved = try TagIO.read(url).snapshot
-            #expect(saved.value(of: .trackNumber) == "3")
-            #expect(saved.value(of: .trackTotal) == "12")
-            #expect(saved.value(of: .discTotal) == "2")
-            #expect(saved.fields["CUSTOM_KEY"] == ["keep me"])
-        }
-
-        // And back: "3/12" in one tag becomes separate number and total tags.
-        let fromMP3 = try await library.copyTags([ids[1]])
-        library.pasteTags(fromMP3, to: [ids[2]], undoManager: nil)
-        #expect(library.item(ids[2])?.edited.fields["TRACKNUMBER"] == ["3"])
-        #expect(library.item(ids[2])?.edited.fields["TRACKTOTAL"] == ["12"])
-    }
-
-    @Test func pastesSeveralFilesTagsInOrder() async throws {
+    @Test func fileNameCollisionsAreSkipped() async throws {
         let (library, ids, _) = try await loadedLibrary()
-        // Unsaved edits are copied too.
-        library.apply(.setField(.title, "Edited Title"), to: [ids[0]], undoManager: nil)
-        let copied = try await library.copyTags([ids[0], ids[1]])
-        #expect(copied.canPaste(onto: 2))
-        #expect(!copied.canPaste(onto: 1))
-        #expect(!copied.canPaste(onto: 3))
-        library.pasteTags(copied, to: [ids[2]], undoManager: nil)
-        #expect(library.item(ids[2])?.isDirty == false)
+        var same = FormatStep(.setTag)
+        same.destination = .fileName
+        same.pattern = "Same"
+        same.onlyIfEmpty = false
+        // basic.flac and cover.flac would both become "Same.flac"; basic.mp3 can.
+        let plan = try library.planFormat([same], in: ids).get()
+        let renames = plan.changes.filter { $0.label == "File Name" }
+        #expect(renames.map(\.after) == ["Same.flac", "Same.mp3", "Same.flac"])
+        #expect(renames.map { $0.problem != nil } == [true, false, true])
+        #expect(plan.fileCount == 1)
 
-        // Swapped: basic.mp3's tags onto basic.flac and the other way round.
-        library.pasteTags(copied, to: [ids[1], ids[0]], undoManager: nil)
-        #expect(library.item(ids[1])?.title == "Edited Title")
-        #expect(library.item(ids[0])?.title == "Mp3 Title")
-        #expect(library.item(ids[0])?.value(.trackNumber) == "5")
+        var empty = same
+        empty.pattern = "..."
+        #expect(try library.planFormat([empty], in: [ids[0]]).get().changes.first?.problem == "The new name would be empty.")
     }
 
     @Test func listsGenresInUseByFrequency() async throws {

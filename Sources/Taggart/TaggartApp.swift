@@ -33,7 +33,7 @@ struct TaggartApp: App {
                 Button("Tags from File Names…") { controller.showTagsFromNamesSheet() }
                     .keyboardShortcut("t", modifiers: [.command, .shift])
                     .disabled(controller.selection.isEmpty || controller.library.isSaving)
-                Button("Format Tags…") { controller.showQuickActionsSheet() }
+                Button("Format Tags…") { controller.showFormatTagsSheet() }
                     .keyboardShortcut("k", modifiers: [.command, .shift])
                     .disabled(controller.selection.isEmpty || controller.library.isSaving)
                 Button("Number Tracks…") { controller.showTrackNumbersSheet() }

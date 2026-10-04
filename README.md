@@ -41,10 +41,25 @@ Lossless), Ogg Vorbis, Opus, WAV, AIFF, WavPack, Monkey's Audio (APE) and WMA.
   other, are skipped, and files missing a tag the pattern uses are flagged.
   Renames happen right away and can be undone with ⌘Z.
 - **Format tags:** click the Aa button in the toolbar, or choose Format
-  Tags… from the File menu (⇧⌘K) or a file's context menu, to change the case of tags
-  (Title Case, Sentence case, UPPERCASE, lowercase), replace text (plain or
-  with regular expressions) or clean up spaces, in all text tags or one of
-  them, for every selected file at once, with a before/after preview.
+  Tags… from the File menu (⇧⌘K) or a file's context menu. Make a list of
+  steps that run in order on every selected file, with a preview of each
+  change:
+  - **Change Case:** Title Case following MusicBrainz's English style
+    ("Dancing in the Dark", "Live at the BBC", "Part II"), Sentence case,
+    Capitalize Every Word, UPPERCASE or lowercase. Words such as DJ or AC/DC
+    are always written as listed.
+  - **Replace Text** (plain or with regular expressions) and **Clean Up
+    Spaces**. These and Change Case work on all text tags, one field, any
+    tag (as named in All Tags), or the file name.
+  - **Set a Tag** from a pattern: Album Artist = `%artist%` where it's
+    empty, Title = `%filename%`, or the file name from tags.
+  - **Split a Tag** into others: a Title "Band - Song" into Artist and Title.
+  - **Remove Tags:** the listed ones, or all but the listed ones.
+
+  Save lists of steps in the Saved Steps menu, and run a saved list on the
+  selected files straight from the context menu (Format Tags With). One ⌘Z
+  undoes it all; tag changes are saved with ⌘S, and files are renamed right
+  away.
 - **Tags from file names:** the reverse of renaming. File → Tags from File
   Names… (⇧⌘T) reads tags from names with a pattern such as
   `%track% - %title%`; `/` reads folder names too (e.g.

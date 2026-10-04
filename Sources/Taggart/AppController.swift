@@ -14,7 +14,7 @@ final class AppController {
     /// The file list cell being edited in place, if any.
     var editingCell: EditingCell?
     var tagsFromNamesRequest: TagsFromNamesRequest?
-    var quickActionsRequest: QuickActionsRequest?
+    var formatTagsRequest: FormatTagsRequest?
     var trackNumbersRequest: TrackNumbersRequest?
     /// Tags taken with Copy Tags, kept until the next copy (or quit).
     var copiedTags: CopiedTags?
@@ -143,15 +143,31 @@ final class AppController {
         library.applyTagsFromNames(plans, undoManager: undoManager)
     }
 
-    // MARK: Quick actions
+    // MARK: Format Tags
 
-    func showQuickActionsSheet() {
+    func showFormatTagsSheet() {
         guard !selection.isEmpty else { return }
-        quickActionsRequest = QuickActionsRequest(ids: selection)
+        formatTagsRequest = FormatTagsRequest(ids: orderedSelection)
     }
 
-    func applyQuickAction(_ action: QuickAction, fields: [LogicalField], to ids: Set<AudioFileItem.ID>) {
-        library.applyQuickAction(action, fields: fields, to: ids, undoManager: undoManager)
+    /// Runs saved steps on the selected files without the preview (⌘Z undoes it).
+    func runFormatSteps(_ list: FormatStepList) {
+        switch library.planFormat(list.steps, in: orderedSelection) {
+        case let .success(plan):
+            applyFormat(plan)
+        case let .failure(error):
+            alert = AppAlert(title: "“\(list.name)” can't be run", messages: [error.message])
+        }
+    }
+
+    func applyFormat(_ plan: FormatPlan) {
+        let failures = library.applyFormat(plan, undoManager: undoManager)
+        if !failures.isEmpty {
+            alert = AppAlert(
+                title: failures.count == 1 ? "A file couldn't be renamed" : "\(failures.count) files couldn't be renamed",
+                messages: failures
+            )
+        }
     }
 
     // MARK: Track numbers
@@ -314,9 +330,10 @@ struct TagsFromNamesRequest: Identifiable {
     var ids: Set<AudioFileItem.ID>
 }
 
-struct QuickActionsRequest: Identifiable {
+struct FormatTagsRequest: Identifiable {
     let id = UUID()
-    var ids: Set<AudioFileItem.ID>
+    /// In list order.
+    var ids: [AudioFileItem.ID]
 }
 
 struct TrackNumbersRequest: Identifiable {

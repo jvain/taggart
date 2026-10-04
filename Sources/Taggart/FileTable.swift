@@ -89,7 +89,18 @@ struct FileTable: View {
                 }
                 Button("Format Tags…") {
                     controller.selection = ids
-                    controller.showQuickActionsSheet()
+                    controller.showFormatTagsSheet()
+                }
+                let savedSteps = FormatStepStore.savedLists
+                if !savedSteps.isEmpty {
+                    Menu("Format Tags With") {
+                        ForEach(savedSteps) { list in
+                            Button(list.name) {
+                                controller.selection = ids
+                                controller.runFormatSteps(list)
+                            }
+                        }
+                    }
                 }
                 Button("Number Tracks…") {
                     controller.selection = ids

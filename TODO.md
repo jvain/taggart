@@ -16,8 +16,6 @@ Ideas for future work, roughly in order of usefulness.
 
 - [ ] **Export and import:** save the tag list as CSV or text; fill tags from a
   text file, such as a pasted track list.
-- [ ] **More from Format Tags:** saved, chained actions (Mp3tag's action
-  groups), and running actions on file names too.
 - [ ] **Playback:** a play button, to check which song a badly named file is.
 
 ## Housekeeping
@@ -26,6 +24,10 @@ Ideas for future work, roughly in order of usefulness.
 
 ## Done
 
+- [x] **More from Format Tags:** lists of steps run in order, saved and
+  loaded by name (and run from the context menu); case changes, replacing
+  and space clean-up on any tag or the file name; Set a Tag from a pattern;
+  Split a Tag; Remove Tags; MusicBrainz-style Title Case.
 - [x] **More formats:** WAV (ID3v2 plus RIFF INFO), AIFF, WavPack, Monkey's
   Audio and WMA. Files whose contents don't match their extension are
   refused. (TagLib also handles DSF, Musepack, TrueAudio and Matroska audio,

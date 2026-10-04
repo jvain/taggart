@@ -32,7 +32,9 @@ public struct TagsFromNamePattern: Sendable {
     /// each capture group fills.
     private let components: [(expression: NSRegularExpression, fields: [LogicalField])]
 
-    public init(_ text: String) {
+    /// With `readsFolders` false, "/" is just a character: for reading tags
+    /// from text that isn't a path (see `tags(in:)`).
+    public init(_ text: String, readsFolders: Bool = true) {
         self.text = text
         var error: String?
         var components: [(NSRegularExpression, [LogicalField])] = []
@@ -41,11 +43,12 @@ public struct TagsFromNamePattern: Sendable {
         let trimmed = text.trimmingCharacters(in: .whitespaces)
         if trimmed.isEmpty {
             error = "Enter a pattern."
-        } else if trimmed.hasPrefix("/") || trimmed.hasSuffix("/") || text.contains("//") {
+        } else if readsFolders && (trimmed.hasPrefix("/") || trimmed.hasSuffix("/") || text.contains("//")) {
             error = "Folder names in the pattern can't be empty."
         }
 
-        for part in text.split(separator: "/", omittingEmptySubsequences: false) where error == nil {
+        let parts = readsFolders ? text.split(separator: "/", omittingEmptySubsequences: false) : [Substring(text)]
+        for part in parts where error == nil {
             var expression = "^"
             var fields: [LogicalField] = []
             var rest = Substring(part)
@@ -108,10 +111,18 @@ public struct TagsFromNamePattern: Sendable {
     /// The tags the pattern reads from a file's path, or nil if the name (or
     /// its folders) doesn't match. Values are trimmed; empty ones are left out.
     public func tags(from url: URL, underscoresAsSpaces: Bool = false) -> [LogicalField: String]? {
-        guard error == nil else { return nil }
         let folders = url.deletingLastPathComponent().pathComponents.filter { $0 != "/" }
-        let names = folders + [url.deletingPathExtension().lastPathComponent]
-        guard names.count >= components.count else { return nil }
+        return tags(in: folders + [url.deletingPathExtension().lastPathComponent], underscoresAsSpaces: underscoresAsSpaces)
+    }
+
+    /// The tags the pattern reads from a piece of text, such as a tag's value
+    /// ("Artist - Song"), or nil if it doesn't match.
+    public func tags(in text: String) -> [LogicalField: String]? {
+        tags(in: [text], underscoresAsSpaces: false)
+    }
+
+    private func tags(in names: [String], underscoresAsSpaces: Bool) -> [LogicalField: String]? {
+        guard error == nil, names.count >= components.count else { return nil }
 
         var tags: [LogicalField: String] = [:]
         for (component, name) in zip(components, names.suffix(components.count)) {

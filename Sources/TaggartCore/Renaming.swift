@@ -151,7 +151,7 @@ public struct RenamePattern: Sendable, Equatable {
         return (components.joined(separator: "/"), missing)
     }
 
-    private static let separators = CharacterSet.whitespaces.union(CharacterSet(charactersIn: "-–—_.,;"))
+    static let separators = CharacterSet.whitespaces.union(CharacterSet(charactersIn: "-–—_.,;"))
 
     static func value(of field: LogicalField, in tags: TagSnapshot) -> String {
         switch field {
