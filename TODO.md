@@ -4,9 +4,7 @@ Ideas for future work, roughly in order of usefulness.
 
 ## Larger features
 
-- [ ] **Tags from file names.** The reverse of rename: fill in tags from a
-  pattern such as `%track% - %title%` applied to the file name, with the same
-  kind of preview dialog.
+None left; see Done below.
 
 ## Smaller improvements
 
@@ -23,6 +21,8 @@ Ideas for future work, roughly in order of usefulness.
 
 ## Done
 
+- [x] **Tags from file names:** File → Tags from File Names… reads tags from
+  names (and folder names) with a pattern, with a preview.
 - [x] **Shrink large covers:** an option in Settings (off by default) scales
   covers wider or taller than a limit (1024 px by default) down to JPEG when
   they're set.

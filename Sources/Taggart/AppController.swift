@@ -11,6 +11,7 @@ final class AppController {
     var selection = Set<AudioFileItem.ID>()
     var alert: AppAlert?
     var renameRequest: RenameRequest?
+    var tagsFromNamesRequest: TagsFromNamesRequest?
     /// True while a cover is being downloaded from the web.
     var isDownloadingArtwork = false
 
@@ -108,6 +109,17 @@ final class AppController {
                 messages: failures
             )
         }
+    }
+
+    // MARK: Tags from file names
+
+    func showTagsFromNamesSheet() {
+        guard !selection.isEmpty else { return }
+        tagsFromNamesRequest = TagsFromNamesRequest(ids: selection)
+    }
+
+    func applyTagsFromNames(_ plans: [TagsFromNamePlan]) {
+        library.applyTagsFromNames(plans, undoManager: undoManager)
     }
 
     // MARK: Artwork
@@ -218,6 +230,11 @@ final class AppController {
 }
 
 struct RenameRequest: Identifiable {
+    let id = UUID()
+    var ids: Set<AudioFileItem.ID>
+}
+
+struct TagsFromNamesRequest: Identifiable {
     let id = UUID()
     var ids: Set<AudioFileItem.ID>
 }

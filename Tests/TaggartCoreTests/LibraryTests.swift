@@ -62,6 +62,56 @@ struct GenreTests {
     }
 }
 
+@Suite("Tags from file names")
+struct TagsFromNameTests {
+    func read(_ pattern: String, _ path: String, underscores: Bool = false) -> [LogicalField: String]? {
+        TagsFromNamePattern(pattern).tags(from: URL(fileURLWithPath: path), underscoresAsSpaces: underscores)
+    }
+
+    @Test func readsFileNames() {
+        #expect(read("%track% - %title%", "/m/01 - Song.flac") == [.trackNumber: "1", .title: "Song"])
+        // Text placeholders take as little as they can; the last one takes the rest.
+        #expect(read("%track% - %title%", "/m/01 - Song - Live.mp3") == [.trackNumber: "1", .title: "Song - Live"])
+        #expect(read("%artist% - %album% - %track% - %title%", "/m/Band - Record - 03 - Name.ogg")
+            == [.artist: "Band", .album: "Record", .trackNumber: "3", .title: "Name"])
+        // Numbers match digits only, so they need no separator.
+        #expect(read("%track%%title%", "/m/07Name.flac") == [.trackNumber: "7", .title: "Name"])
+        #expect(read("%year% - %album%", "/m/1999 - Record.flac") == [.date: "1999", .album: "Record"])
+        #expect(read("%track% of %tracktotal% %title%", "/m/3 of 12 X.flac")
+            == [.trackNumber: "3", .trackTotal: "12", .title: "X"])
+        #expect(read("%track% - %title%", "/m/00 - Intro.flac") == [.trackNumber: "0", .title: "Intro"])
+    }
+
+    @Test func readsFolderNames() {
+        #expect(read("%artist%/%album%/%track% - %title%", "/Music/Band/Record/03 - Song.mp3")
+            == [.artist: "Band", .album: "Record", .trackNumber: "3", .title: "Song"])
+        // Literal text ignores case.
+        #expect(read("CD%disc%/%track% %title%", "/x/cd2/05 Name.flac") == [.discNumber: "2", .trackNumber: "5", .title: "Name"])
+        #expect(read("%artist%/%album%/%title%", "/Song.flac") == nil)
+    }
+
+    @Test func skipsAndUnderscores() {
+        #expect(read("%skip% - %title%", "/m/xyz - Song.flac") == [.title: "Song"])
+        #expect(read("%track% - %title%", "/m/01_-_Song_Title.flac", underscores: true) == [.trackNumber: "1", .title: "Song Title"])
+        #expect(read("%track% - %title%", "/m/01_-_Song_Title.flac") == nil)
+    }
+
+    @Test func reportsNonMatchingNames() {
+        #expect(read("%track% - %title%", "/m/Song.mp3") == nil)
+        #expect(read("%track% - %title%", "/m/A1 - Song.mp3") == nil)
+    }
+
+    @Test func rejectsBadPatterns() {
+        #expect(TagsFromNamePattern("%nope% - %title%").error == "Unknown placeholder “%nope%”.")
+        #expect(TagsFromNamePattern("%skip%").error != nil)
+        #expect(TagsFromNamePattern(" ").error != nil)
+        #expect(TagsFromNamePattern("%artist%/").error != nil)
+        #expect(TagsFromNamePattern("%artist%//%title%").error != nil)
+        #expect(TagsFromNamePattern("(%track%) [%title%]").error == nil)
+        #expect(read("(%track%) [%title%]", "/m/(4) [Name].flac") == [.trackNumber: "4", .title: "Name"])
+    }
+}
+
 @Suite("Raw tag names")
 struct RawTagKeyTests {
     @Test func validatesNames() {
@@ -293,6 +343,40 @@ struct LibraryTests {
 
         undo.undo()
         #expect(library.item(ids[0])?.title == "Edited")
+    }
+
+    @Test func setsTagsFromFileNamesWithUndo() async throws {
+        let (library, ids, urls) = try await loadedLibrary()
+        let folder = urls[0].deletingLastPathComponent()
+        // basic.flac → "07 - First.flac", basic.mp3 → "08 - Second.mp3"; cover.flac doesn't match.
+        try FileManager.default.moveItem(at: urls[0], to: folder.appendingPathComponent("07 - First.flac"))
+        try FileManager.default.moveItem(at: urls[1], to: folder.appendingPathComponent("08 - Second.mp3"))
+        library.remove(Set(ids))
+        await library.add([folder])
+        let items = library.items
+        #expect(items.map(\.fileName) == ["07 - First.flac", "08 - Second.mp3", "cover.flac"])
+
+        let plans = library.planTagsFromNames(Set(items.map(\.id)), pattern: TagsFromNamePattern("%track% - %title%"))
+        #expect(plans.map(\.summary) == ["Track 7 · Title First", "Track 8 · Title Second", ""])
+        #expect(plans[2].tags == nil)
+
+        let undo = undoManager()
+        undo.beginUndoGrouping()
+        library.applyTagsFromNames(plans, undoManager: undo)
+        undo.endUndoGrouping()
+        #expect(undo.undoActionName == "Tags from File Names")
+        #expect(items[0].title == "First")
+        #expect(items[0].value(.trackNumber) == "7")
+        // Other fields stay, including the FLAC's track total and the MP3's
+        // n/total pair (its total 9 is kept).
+        #expect(items[0].value(.trackTotal) == "12")
+        #expect(items[0].album == "Flac Album")
+        #expect(items[1].edited.fields["TRACKNUMBER"] == ["8/9"])
+        #expect(!items[2].isDirty)
+
+        undo.undo()
+        #expect(items[0].title == "Flac Title")
+        #expect(!library.hasUnsavedChanges)
     }
 
     @Test func renamesFilesAndUndoes() async throws {

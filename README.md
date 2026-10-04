@@ -35,6 +35,13 @@ Lossless), Ogg Vorbis and Opus.
   folder you choose. A preview shows each new name. Files that would collide with an existing file, or with each
   other, are skipped, and files missing a tag the pattern uses are flagged.
   Renames happen right away and can be undone with ⌘Z.
+- **Tags from file names:** the reverse of renaming. File → Tags from File
+  Names… (⇧⌘T) reads tags from names with a pattern such as
+  `%track% - %title%`; `/` reads folder names too (e.g.
+  `%artist%/%album%/%track% - %title%`) and `%skip%` skips text. A preview
+  shows the tags read from each file; names that don't match are skipped.
+  Only the tags in the pattern change, and like other edits they're saved
+  with ⌘S.
 - **Undo/redo** (⌘Z / ⌘⇧Z) for every edit until you save. Edits stay pending
   (marked with a dot, in the list and in the window's close button) until you
   save with ⌘S. **Revert Selected** re-reads

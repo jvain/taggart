@@ -307,6 +307,37 @@ public final class Library {
         }
     }
 
+    // MARK: Tags from file names
+
+    /// What reading tags from the names of the files in `ids` would do, in list order.
+    public func planTagsFromNames(_ ids: Set<AudioFileItem.ID>, pattern: TagsFromNamePattern,
+                                  underscoresAsSpaces: Bool = false) -> [TagsFromNamePlan] {
+        let fields = pattern.fields
+        return items(ids).map { item in
+            TagsFromNamePlan(id: item.id, url: item.url,
+                             tags: pattern.tags(from: item.url, underscoresAsSpaces: underscoresAsSpaces), fields: fields)
+        }
+    }
+
+    /// Sets the tags read from file names, as one undoable edit. Files whose
+    /// names didn't match are left alone; so are fields the pattern doesn't use.
+    public func applyTagsFromNames(_ plans: [TagsFromNamePlan], undoManager: UndoManager?) {
+        var snapshots: [AudioFileItem.ID: TagSnapshot] = [:]
+        for plan in plans {
+            guard let tags = plan.tags, let item = itemsByID[plan.id] else { continue }
+            var snapshot = item.edited
+            for field in LogicalField.allCases {
+                if let value = tags[field] {
+                    snapshot.set(field, to: value, format: item.info.format)
+                }
+            }
+            if snapshot != item.edited {
+                snapshots[item.id] = snapshot
+            }
+        }
+        setEdited(snapshots, actionName: "Tags from File Names", undoManager: undoManager)
+    }
+
     // MARK: Renaming
 
     /// What renaming the files in `ids` with `pattern` would do, in list order.

@@ -30,6 +30,9 @@ struct TaggartApp: App {
                 Button("Rename Files from Tags…") { controller.showRenameSheet() }
                     .keyboardShortcut("r", modifiers: [.command, .shift])
                     .disabled(controller.selection.isEmpty || controller.library.isSaving)
+                Button("Tags from File Names…") { controller.showTagsFromNamesSheet() }
+                    .keyboardShortcut("t", modifiers: [.command, .shift])
+                    .disabled(controller.selection.isEmpty || controller.library.isSaving)
             }
             CommandGroup(after: .pasteboard) {
                 Divider()

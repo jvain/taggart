@@ -82,6 +82,10 @@ struct ContentView: View {
                 RenameSheet(ids: request.ids)
                     .environment(controller)
             }
+            .sheet(item: $controller.tagsFromNamesRequest) { request in
+                TagsFromNamesSheet(ids: request.ids)
+                    .environment(controller)
+            }
             .onAppear {
                 controller.undoManager = undoManager
                 controller.openWindow = openWindow

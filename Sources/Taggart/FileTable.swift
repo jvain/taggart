@@ -84,6 +84,10 @@ struct FileTable: View {
                     controller.selection = ids
                     controller.showRenameSheet()
                 }
+                Button("Tags from File Names…") {
+                    controller.selection = ids
+                    controller.showTagsFromNamesSheet()
+                }
                 Button("Revert") {
                     controller.selection = ids
                     controller.revertSelected()
